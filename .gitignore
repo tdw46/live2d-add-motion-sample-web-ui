@@ -1,0 +1,19 @@
+# ローカル専用素材(Live2Dサンプルモデルの原本・プロンプト等。ライセンス上リポジトリに含めない)
+local-assets/
+
+# 実行用モデルデータ(Live2Dサンプルモデル。ライセンス上リポジトリに含めない)
+models/
+
+# 検証用スクリーンショット出力(tools/verify_browser.sh)
+tmp-verify/
+
+# セットアップ時に生成されるモデル設定(tools/setup_model.py)
+model.config.json
+
+# モデルごとのモーション定義はmodels/と同じ「作業成果物」扱い(同梱サンプルのみ追跡)
+# 残したい定義は git add -f motion-defs/<モデル名>.py で明示的に追跡する
+motion-defs/*
+!motion-defs/hiyori_pro_t11.py
+
+# macOS
+.DS_Store

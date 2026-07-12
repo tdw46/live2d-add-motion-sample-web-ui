@@ -1,0 +1,111 @@
+# live2d-add-motion-sample-web-ui
+
+**Add new motions to a Live2D model by editing JSON only — no Cubism Editor required.** Comes with a browser-based WebUI.
+
+[日本語版READMEはこちら](README.ja.md)
+
+![Screenshot of the WebUI: the Hiyori avatar on the left, playback buttons for the newly added motions on the right](docs/images/webui.png)
+
+<sub>Sample model: Hiyori Momose ©Live2D (model data is NOT included in this repository)</sub>
+
+## What is this?
+
+A Live2D motion file (`.motion3.json`) is just JSON — a set of keyframe curves per model parameter. That means you can create new motions with a text editor alone, as long as you stay within the parameters the model already has. No rigging, no mesh editing.
+
+This repository adds the following 7 motions to the official Live2D sample model "Hiyori", using JSON only:
+
+| Motion | Main parameters used |
+|---|---|
+| Happy | Smiling eyes (EyeSmile) + mouth form + cheek blush + body bounce |
+| Wink | Single-eye blink + head tilt |
+| Nod | Head pitch (double nod) |
+| Thinking | Head tilt + averted gaze + furrowed brows |
+| Surprised | Widened eyes + raised brows + "o" mouth + lean back |
+| Shy | Cheek blush + looking down + lowered eyelids |
+| Head shake | Head yaw oscillation |
+
+For reproducibility, motions are not hand-written: they are built by a pipeline of **a generator script + an independent validator + headless-browser verification**. The repository also ships agent-facing documentation ([AGENTS.md](AGENTS.md), in Japanese) so you can ask an AI agent (Claude Code, Codex, etc.) to "add a new motion" and have it work autonomously.
+
+## Quick start
+
+Requirements: **Python 3** (standard library only), a **modern browser**, and a coding agent such as Claude Code / Codex.
+
+```bash
+git clone https://github.com/shinshin86/live2d-add-motion-sample-web-ui.git
+cd live2d-add-motion-sample-web-ui
+```
+
+Launch your agent at the repository root and **just ask, mentioning where your model is**:
+
+> There is a Live2D model at `~/Downloads/model.zip`. Add motions to this model and make them viewable in the browser.
+
+The agent handles everything — placing the model, setup, motion design, generation, validation, and starting the server (the workflow is defined in [AGENTS.md](AGENTS.md), which agents read automatically). A zip or a folder works, located anywhere.
+
+If you don't have a model, download the official sample model ["Hiyori Momose (hiyori_pro)"](https://www.live2d.com/en/learn/sample/momose-hiyori/) — the bundled sample motion definitions work with it out of the box.
+
+Adding or changing motions is also just a request:
+
+> Add a "waving hand" motion to this model. If it cannot be made naturally with the existing parameters, do not force it — propose alternatives instead.
+
+### Run manually
+
+```bash
+python3 tools/setup_model.py <model zip or folder>   # place model + generate model.config.json
+python3 tools/gen_motions.py        # generate + register motions
+python3 tools/validate_motions.py   # validate (should print "OK")
+
+python3 -m http.server 8765         # serve
+# → http://localhost:8765
+```
+
+Motion definitions live in `motion-defs/<model-name>.py`, one file per model (a sample definition is bundled as a reference). A different model needs its own definitions matching its parameters — that design work is exactly what you delegate to the AI agent. Definition files are treated as per-model workspace artifacts and are git-ignored just like `models/`, so switching models never dirties the repository.
+
+## Using the WebUI
+
+- Play the newly added motions from the highlighted card (★ buttons); existing motions are in the collapsible sections below
+- **Drag** the avatar to move it, **mouse wheel / pinch** to zoom around the cursor, and "Reset view" to restore the initial placement
+- Debug query parameters: `?play=Action:0` (auto-play), `&freeze=1.2` (freeze the pose at a given second), `?uitest=1` (automated drag/zoom test)
+
+## Adding your own motions
+
+If you use an AI agent, just reuse the prompt from the quick start (change the motion name). To do it manually:
+
+1. `python3 tools/analyze_model.py` — inspect available parameters, their safe value ranges, and physics-driven parameters (do not animate those directly)
+2. Add your keyframes to `motion-defs/<model-name>.py` (see the bundled sample for the format)
+3. Generate → validate → verify in a browser:
+
+```bash
+python3 tools/gen_motions.py
+python3 tools/validate_motions.py
+tools/verify_browser.sh   # captures peak poses with headless Chrome (Chrome required)
+```
+
+Design rules (value ranges, returning to the base pose, avoiding physics-driven parameters, etc.) and model-specific knowledge are documented in [AGENTS.md](AGENTS.md). It is written for AI agents but useful for humans too.
+
+## Repository layout
+
+```
+index.html                  WebUI (static HTML, no build step); resolves the model via model.config.json
+tools/
+  setup_model.py            Place a model (zip/folder → models/) + generate model.config.json
+  analyze_model.py          Analyze parameters, value ranges, physics outputs
+  gen_motions.py            Generation engine (model-agnostic); builds + registers motions from definitions (idempotent)
+  validate_motions.py       Independently implemented validator
+  verify_browser.sh         Real-rendering verification with headless Chrome
+                            (assumes the macOS Chrome path; override with env CHROME)
+motion-defs/<model>.py      Motion definitions (creative content, one file per model)
+                            [git-ignored; only the bundled sample is tracked]
+AGENTS.md                   Working guide for AI agents (in Japanese)
+model.config.json           [git-ignored] current model configuration (generated by setup_model.py)
+local-assets/ , models/     [git-ignored] Live2D model data (not included for licensing reasons)
+```
+
+## License
+
+The original parts of this repository (HTML / scripts / documentation) are licensed under the [MIT License](LICENSE).
+
+The following are NOT covered by MIT and are subject to their own licenses:
+
+- **Live2D sample model "Hiyori"**: covered by the [Live2D Free Material License](https://www.live2d.com/eula/live2d-free-material-license-agreement_en.html); redistribution is prohibited, so it is not included here. Download it yourself from the [official distribution page](https://www.live2d.com/en/learn/sample/momose-hiyori/). The copyright of the model shown in the README screenshot belongs to Live2D Inc.
+- **Live2D Cubism Core** (`live2dcubismcore.min.js`): loaded by the WebUI from the official Live2D CDN ([Live2D Proprietary Software License](https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html)). This repository does not redistribute the Core itself. If you release a product embedding the SDK as a business, a [publication license](https://www.live2d.com/en/sdk/license/) may be required depending on your business scale.
+- **PixiJS / pixi-live2d-display**: loaded from CDNs (both MIT licensed).
