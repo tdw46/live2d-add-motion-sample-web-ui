@@ -24,7 +24,7 @@ def resolve_runtime():
         return sys.argv[1]
     cfg_path = os.path.join(ROOT, "model.config.json")
     if not os.path.exists(cfg_path):
-        sys.exit("ERROR: model.config.json がありません。先に python3 tools/setup_model.py を実行してください。")
+        sys.exit("ERROR: model.config.json not found. Run python3 tools/setup_model.py first.")
     cfg = json.load(open(cfg_path))
     return os.path.join(ROOT, os.path.dirname(cfg["model3"]))
 
@@ -96,8 +96,8 @@ def main():
             first_vals[c["Id"]][round(pts[0][1], 2)] += 1
 
     print(f"# runtime: {RUNTIME}")
-    print(f"# 既存モーション {len(motions)} 件から集計\n")
-    header = f"{'ParamId':32s} {'min':>8s} {'max':>8s} {'基本値(推定)':>10s}  physics  表示名"
+    print(f"# aggregated from {len(motions)} existing motions\n")
+    header = f"{'ParamId':32s} {'min':>8s} {'max':>8s} {'base(est)':>10s}  physics  display name"
     print(header)
     print("-" * len(header))
     for pid in sorted(set(names) | set(stats)):
@@ -107,10 +107,10 @@ def main():
             rng = f"{mn:8.2f} {mx:8.2f} {base:10.2f}"
         else:
             rng = f"{'-':>8s} {'-':>8s} {'-':>10s}"
-        phys = "  ★物理   " if pid in physics_outputs else "         "
+        phys = "  ★phys  " if pid in physics_outputs else "         "
         print(f"{pid:32s} {rng} {phys} {names.get(pid, '')}")
-    print("\n★物理 = physics3.json の出力先。モーションで直接動かさないこと"
-          "(頭・体の角度を動かせば自然に揺れる)。")
+    print("\n★phys = destination of a physics3.json output. Never animate these "
+          "directly (move the head/body angles and they sway naturally).")
 
 
 if __name__ == "__main__":

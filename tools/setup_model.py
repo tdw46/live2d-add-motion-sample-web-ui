@@ -40,18 +40,18 @@ def main():
 
     search_base = src or LOCAL
     if not os.path.isdir(search_base):
-        sys.exit(f"ERROR: {search_base} がありません。モデルのフォルダかzipのパスを指定してください。")
+        sys.exit(f"ERROR: {search_base} does not exist. Pass the path to a model folder or zip.")
 
     candidates = find_model3(search_base)
     # Never treat models/ (the working copy) as a source
     candidates = [c for c in candidates
                   if not os.path.abspath(c).startswith(os.path.abspath(MODELS) + os.sep)]
     if not candidates:
-        sys.exit(f"ERROR: {search_base} に *.model3.json が見つかりません。\n"
-                 f"モデル(runtimeフォルダを含む)を local-assets/ に置くか、パスを引数で指定してください。")
+        sys.exit(f"ERROR: no *.model3.json found under {search_base}.\n"
+                 f"Place a model (containing its runtime folder) under local-assets/ or pass its path as an argument.")
     if len(candidates) > 1:
         listing = "\n".join(f"  - {c}" for c in candidates)
-        sys.exit(f"ERROR: モデルが複数見つかりました。使うモデルのフォルダを引数で指定してください:\n{listing}")
+        sys.exit(f"ERROR: multiple models found. Pass the folder of the one to use as an argument:\n{listing}")
 
     model3 = candidates[0]
     src_dir = os.path.dirname(model3)
@@ -70,7 +70,7 @@ def main():
 
     print(f"copied:     {src_dir} -> {target}")
     print(f"registered: {CONFIG} (model3: {rel_model3})")
-    print("next:       python3 tools/analyze_model.py でパラメータを確認")
+    print("next:       python3 tools/analyze_model.py to inspect the parameters")
 
 
 if __name__ == "__main__":

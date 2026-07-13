@@ -36,7 +36,7 @@ def resolve_runtime():
         return sys.argv[1]
     cfg_path = os.path.join(ROOT, "model.config.json")
     if not os.path.exists(cfg_path):
-        sys.exit("ERROR: model.config.json がありません。先に python3 tools/setup_model.py を実行してください。")
+        sys.exit("ERROR: model.config.json not found. Run python3 tools/setup_model.py first.")
     cfg = json.load(open(cfg_path))
     return os.path.join(ROOT, os.path.dirname(cfg["model3"]))
 
@@ -76,7 +76,7 @@ def main():
     model3 = json.load(open(model3_path))
     entries = model3["FileReferences"]["Motions"].get(GROUP, [])
     if not entries:
-        print(f"NG: model3.json に {GROUP} グループがありません")
+        print(f"NG: model3.json has no {GROUP} group")
         return 1
 
     new_files = [os.path.join(RUNTIME, e["File"]) for e in entries]
@@ -103,14 +103,14 @@ def main():
 
     has_reference = bool(existing)
     if not has_reference:
-        print("WARN: 既存モーションがないモデルのため、値域と基本姿勢のチェックをスキップします。")
-        print("WARN: ブラウザでの目視確認を必ず行ってください。")
+        print("WARN: this model has no pre-existing motions; skipping the range and base-pose checks.")
+        print("WARN: be sure to verify visually in the browser.")
 
     errors = []
     for f in new_files:
         name = os.path.basename(f)
         if not os.path.exists(f):
-            errors.append(f"{name}: model3.jsonから参照されているがファイルがない")
+            errors.append(f"{name}: referenced by model3.json but the file does not exist")
             continue
         d = json.load(open(f))
         meta = d["Meta"]
@@ -121,41 +121,41 @@ def main():
             nseg_total += nseg
             npt_total += npt
             for t in ctrl_errors:
-                errors.append(f"{name}:{pid}: ベジェ制御点が区間外 (t={t})")
+                errors.append(f"{name}:{pid}: bezier control point outside its segment (t={t})")
             times = [t for t, _ in pts]
             if times != sorted(times):
-                errors.append(f"{name}:{pid}: 時刻が単調増加でない")
+                errors.append(f"{name}:{pid}: keyframe times are not monotonically increasing")
             if abs(times[0]) > EPS:
-                errors.append(f"{name}:{pid}: t=0 から始まっていない")
+                errors.append(f"{name}:{pid}: does not start at t=0")
             if abs(times[-1] - meta["Duration"]) > EPS:
-                errors.append(f"{name}:{pid}: 最終キー({times[-1]})がDuration({meta['Duration']})と不一致")
+                errors.append(f"{name}:{pid}: last key ({times[-1]}) != Duration ({meta['Duration']})")
             if c["Target"] != "Parameter" or not has_reference:
                 continue
             if pid not in safe:
-                errors.append(f"{name}:{pid}: 既存モーションで未使用のパラメータ(値域を確認して意図的なら除外設定を)")
+                errors.append(f"{name}:{pid}: parameter never used by the existing motions (check its range; keep only if deliberate)")
             else:
                 lo, hi = safe[pid]
                 for t, v in pts:
                     if not (lo - EPS <= v <= hi + EPS):
-                        errors.append(f"{name}:{pid}: 値 {v} (t={t}) が観測値域 [{lo},{hi}] の外")
+                        errors.append(f"{name}:{pid}: value {v} (t={t}) outside the observed range [{lo},{hi}]")
             base = base_pose.get(pid, 0)
             if abs(pts[0][1] - base) > EPS:
-                errors.append(f"{name}:{pid}: 開始値 {pts[0][1]} が基本姿勢 {base} でない")
+                errors.append(f"{name}:{pid}: first value {pts[0][1]} != base pose {base}")
             if abs(pts[-1][1] - base) > EPS:
-                errors.append(f"{name}:{pid}: 最終値 {pts[-1][1]} が基本姿勢 {base} でない")
+                errors.append(f"{name}:{pid}: last value {pts[-1][1]} != base pose {base}")
         for key, actual in [("CurveCount", len(d["Curves"])),
                             ("TotalSegmentCount", nseg_total),
                             ("TotalPointCount", npt_total)]:
             if meta[key] != actual:
-                errors.append(f"{name}: Meta.{key}={meta[key]} だが実データは {actual}")
+                errors.append(f"{name}: Meta.{key}={meta[key]} but the actual data has {actual}")
         print(f"checked {name}: curves={len(d['Curves'])} segs={nseg_total} pts={npt_total}")
 
     print("---")
     if errors:
         print("\n".join(errors))
-        print(f"NG: {len(errors)} 件の違反")
+        print(f"NG: {len(errors)} violations")
         return 1
-    print(f"OK: {GROUP}グループ {len(new_files)} モーション全チェック合格")
+    print(f"OK: all checks passed for {len(new_files)} motions in the {GROUP} group")
     return 0
 
 

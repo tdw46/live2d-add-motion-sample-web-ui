@@ -43,7 +43,7 @@ def resolve_runtime():
         return sys.argv[1]
     cfg_path = os.path.join(ROOT, "model.config.json")
     if not os.path.exists(cfg_path):
-        sys.exit("ERROR: model.config.json がありません。先に python3 tools/setup_model.py を実行してください。")
+        sys.exit("ERROR: model.config.json not found. Run python3 tools/setup_model.py first.")
     cfg = json.load(open(cfg_path))
     return os.path.join(ROOT, os.path.dirname(cfg["model3"]))
 
@@ -99,15 +99,15 @@ def motion(duration, curves):
 def load_definitions(stem):
     def_path = os.path.join(DEFS_DIR, f"{stem}.py")
     if not os.path.exists(def_path):
-        sys.exit(f"ERROR: このモデル用のモーション定義がありません: {def_path}\n"
-                 f"同梱サンプル motion-defs/hiyori_pro_t11.py を参考に作成してください\n"
-                 f"(パラメータは python3 tools/analyze_model.py で確認)。")
+        sys.exit(f"ERROR: no motion definitions for this model: {def_path}\n"
+                 f"Create it using the bundled sample motion-defs/hiyori_pro_t11.py as a reference\n"
+                 f"(inspect the available parameters with python3 tools/analyze_model.py).")
     spec = importlib.util.spec_from_file_location(f"motion_defs_{stem}", def_path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     motions, manifest = mod.define(curve, motion)
     if set(n for n, *_ in manifest) != set(motions):
-        sys.exit(f"ERROR: {def_path} の MANIFEST と MOTIONS のキーが一致しません。")
+        sys.exit(f"ERROR: MANIFEST and MOTIONS keys do not match in {def_path}.")
     return motions, manifest, def_path
 
 
@@ -116,7 +116,7 @@ def main():
 
     model3_files = glob.glob(os.path.join(runtime, "*.model3.json"))
     if len(model3_files) != 1:
-        sys.exit(f"ERROR: {runtime} に model3.json が {len(model3_files)} 件。1件である必要があります。")
+        sys.exit(f"ERROR: found {len(model3_files)} model3.json files in {runtime}; exactly one is required.")
     model3_path = model3_files[0]
     stem = os.path.basename(model3_path).replace(".model3.json", "")
 
@@ -132,9 +132,9 @@ def main():
             if c["Target"] == "Parameter" and c["Id"] not in available
         })
         if missing:
-            sys.exit(f"ERROR: 以下のパラメータはこのモデルに存在しません。\n"
-                     f"{def_path} をこのモデル用に書き直してください"
-                     f"(tools/analyze_model.py で利用可能なパラメータを確認):\n  "
+            sys.exit(f"ERROR: the following parameters do not exist in this model.\n"
+                     f"Rewrite {def_path} for this model "
+                     f"(check the available parameters with tools/analyze_model.py):\n  "
                      + "\n  ".join(missing))
 
     motion_dir = os.path.join(runtime, "motion")

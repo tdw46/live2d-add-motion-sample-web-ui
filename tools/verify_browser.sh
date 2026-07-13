@@ -21,7 +21,7 @@ mkdir -p "$OUT"
 rm -f "$OUT"/*.png  # avoid mixing results from a previous run
 
 if [ ! -x "$CHROME" ]; then
-  echo "ERROR: Chromeが見つかりません: $CHROME (環境変数CHROMEで指定可)" >&2
+  echo "ERROR: Chrome not found: $CHROME (set the CHROME env var to override)" >&2
   exit 1
 fi
 
@@ -60,4 +60,4 @@ EOF
   shot uitest "uitest=1"
 fi
 
-echo "done. $OUT/*.png を目視確認してください(モーションが反映されているか、破綻がないか)。"
+echo "done. Inspect $OUT/*.png visually (motions applied? any artifacts or unnatural poses?)."

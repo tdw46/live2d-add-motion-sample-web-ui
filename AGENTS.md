@@ -1,128 +1,150 @@
-# AGENTS.md — AIエージェント向けガイド
+# AGENTS.md — Guide for AI Agents
 
-Live2DモデルにJSONだけでモーションを追加し、WebUIで再生確認するプロジェクト。
-このドキュメントはAIエージェント(Claude Code / Codex 等)向けの作業手順書。
+A project that adds motions to a Live2D model using JSON only, with a WebUI
+to verify playback. This document is the working playbook for AI agents
+(Claude Code / Codex, etc.).
 
-## 想定される依頼と、そのときやること
+## The typical request, and what to do
 
-ユーザーは細かい手順を知らない前提。典型的な依頼は
-**「このモデルにモーションを追加して」**(+モデルのzip/フォルダのパス)だけ。
-その場合、以下を自律的に実行する:
+Assume the user does not know the internal steps. The typical request is just
+**"Add motions to this model"** (+ the path to the model's zip/folder).
+In that case, execute the following autonomously:
 
-1. **モデルの所在を特定** — パスが伝えられていなければ、`local-assets/` と
-   リポジトリ内を探す(`*.model3.json` を検索)。見つからなければユーザーに
-   モデルの場所を聞く(これはユーザーにしか分からない情報)。
-2. **セットアップ** — `python3 tools/setup_model.py <zipまたはフォルダ>`。
-   実行用コピーが `models/` に作られ、`model.config.json` に登録される。
-   以降のツールとWebUIはすべてこの設定を参照する。
-3. **分析** — `python3 tools/analyze_model.py` で利用可能なパラメータ・
-   安全値域・物理演算出力(★印)・基本姿勢を把握する。
-4. **モーション設計** — 下の「設計ルール」に従い、`motion-defs/<モデル名>.py` を
-   このモデル用に書く。モデル名は model3.json のファイル名から拡張子を除いたもの
-   (例: `mao_pro.model3.json` → `motion-defs/mao_pro.py`)。書式は同梱サンプル
-   `motion-defs/hiyori_pro_t11.py` を参照。パラメータ構成はモデルごとに違うので、
-   他モデルの定義を流用せず、analyze結果に合わせて設計し直す。
-5. **生成** — `python3 tools/gen_motions.py`(生成 + model3.json登録。冪等)。
-   モデルに存在しないパラメータを使うとここでエラーになる。
-6. **検証** — `python3 tools/validate_motions.py` が exit 0 になるまで直す。
-7. **目視確認** — `tools/verify_browser.sh` でスクリーンショットを撮り、
-   表情・ポーズが意図通りかを自分の目で確認する(基本ポーズのままなら失敗)。
-8. **引き渡し** — `python3 -m http.server 8765` を起動し、
-   http://localhost:8765 で確認できることを伝える。
+1. **Locate the model** — if no path was given, search `local-assets/` and the
+   repository for `*.model3.json`. If nothing is found, ask the user where the
+   model is (only the user knows that).
+2. **Set up** — `python3 tools/setup_model.py <zip or folder>`. A working copy
+   is created under `models/` and registered in `model.config.json`. Every
+   tool and the WebUI read that config from then on.
+3. **Analyze** — `python3 tools/analyze_model.py` to learn the available
+   parameters, their safe value ranges, the physics outputs (marked ★), and
+   the base pose.
+4. **Design motions** — following the "Design rules" below, write
+   `motion-defs/<model>.py` for this model. The model name is the model3.json
+   file name without its extension (e.g. `mao_pro.model3.json` →
+   `motion-defs/mao_pro.py`). See the bundled sample
+   `motion-defs/hiyori_pro_t11.py` for the format. Parameter sets differ
+   between models, so design from the analyze output instead of reusing
+   another model's definitions. If a definitions file for *this* model
+   already exists (e.g. the bundled Hiyori sample), reuse or extend it
+   rather than writing a new one.
+5. **Generate** — `python3 tools/gen_motions.py` (generate + register into
+   model3.json; idempotent). Referencing a parameter the model does not have
+   fails here.
+6. **Validate** — fix issues until `python3 tools/validate_motions.py` exits 0.
+7. **Visual check** — take screenshots with `tools/verify_browser.sh` and
+   confirm with your own eyes that the expressions and poses look right
+   (if the character stays in the base pose, playback failed).
+8. **Hand over** — start `python3 -m http.server 8765` and tell the user to
+   check http://localhost:8765.
 
-モーションの「何を作るか」の判断(どの感情表現が作れるか、どのパラメータを
-使うか)はエージェントの仕事。機械的な処理はすべてツールがやる。
+Deciding *what* to make (which expressions are feasible, which parameters to
+use) is the agent's job. Everything mechanical is done by the tools.
 
-## リポジトリ構成
+## Repository layout
 
 ```
-index.html                 WebUI(静的HTML)。model.config.json からモデルを解決
+index.html                 WebUI (static HTML); resolves the model via model.config.json
 tools/
-  setup_model.py           モデル配置(zip/フォルダ→models/)+ model.config.json 生成
-  analyze_model.py         パラメータ一覧・安全値域・物理出力・基本姿勢を出力
-  gen_motions.py           生成エンジン(モデル非依存・編集不要)。定義から生成 + model3.json登録(冪等)
-  validate_motions.py      独立バリデータ(生成とは別実装)
-  verify_browser.sh        ヘッドレスChromeで実描画スクリーンショット
-motion-defs/<モデル名>.py   ★モーション定義(モデルごとの創作物・モーションの唯一のソース)
-                           [git管理外](同梱サンプル hiyori_pro_t11.py のみ追跡)
-model.config.json          [git管理外] 現在のモデル設定(setup_model.pyが生成)
-local-assets/              [git管理外] モデル原本置き場
-models/                    [git管理外] 実行用モデル。setup+genで完全再構築できる生成物
-tmp-verify/                [git管理外] verify_browser.sh の出力
+  setup_model.py           Place a model (zip/folder → models/) + generate model.config.json
+  analyze_model.py         Print parameters, safe ranges, physics outputs, base pose
+  gen_motions.py           Generation engine (model-agnostic, no editing needed);
+                           builds from definitions + registers into model3.json (idempotent)
+  validate_motions.py      Independent validator (implemented separately from the generator)
+  verify_browser.sh        Real-rendering screenshots via headless Chrome
+motion-defs/<model>.py     ★Motion definitions (per-model creative content; the single
+                           source of the motions) [git-ignored; only the bundled
+                           sample hiyori_pro_t11.py is tracked]
+model.config.json          [git-ignored] current model config (generated by setup_model.py)
+local-assets/              [git-ignored] original model assets
+models/                    [git-ignored] working model copies; fully rebuildable via setup+gen
+tmp-verify/                [git-ignored] verify_browser.sh output
 ```
 
-重要: `models/` 配下は**生成物**。`.motion3.json` や `model3.json` を直接編集しない。
-変更はすべて `motion-defs/<モデル名>.py` を編集して `gen_motions.py` を再実行する。
-`tools/` 配下はモデル非依存のエンジンなので、モデルを変えても編集しない。
+Important: everything under `models/` is **generated**. Never edit
+`.motion3.json` or `model3.json` directly — edit `motion-defs/<model>.py`
+and re-run `gen_motions.py`. Everything under `tools/` is a model-agnostic
+engine; do not edit it when switching models.
 
-## 設計ルール(モデルに依らない共通則)
+## Design rules (model-independent)
 
-- Cubism Editorでのリグ/メッシュ編集はしない。既存パラメータのみ使う。
-- 値は既存モーションの観測値域内に収める(`analyze_model.py` が出力。
-  バリデータも同じ基準で落とす)。
-- 最終フレームは基本姿勢に戻す(基本姿勢は既存モーションの先頭フレームから
-  自動推定される。デフォルト値はモデルごとに違う — 例: ひよりはMouthForm=1)。
-- 物理演算の出力パラメータ(★印)はモーションで直接動かさない。
-  頭・体の角度を動かせば自然に揺れる。
-- PartOpacityの切り替えは、フェードイン/ポップが不自然になるため原則使わない。
-- 新規モーションは既存グループを変えず `Action` グループに登録する。
-- アクションは `Loop: false`、FadeIn/Out は 0.2〜0.5秒。
-- 腕・手はパラメータの意味が読みにくいことが多い。自然な連続パラメータが
-  確認できない場合、大きな手振りは作らずに顔・体の表現で代替する。
-- 既存モーションを持たないモデルでは値域チェックが効かない。パラメータIDの
-  慣習的な範囲(Angle系±30、目0〜1、EyeBall±1など)に保守的に収め、
-  目視確認を特に念入りに行う。
-- 不自然なモーションは無理に残さず、理由を説明して代替案を提示する。
+- Never edit rigs/meshes in Cubism Editor. Use only the model's existing
+  parameters.
+- Keep values within the ranges observed in the existing motions
+  (`analyze_model.py` prints them; the validator enforces the same rule).
+- The final frame must return to the base pose (estimated automatically from
+  the first frames of the existing motions; defaults differ per model —
+  e.g. Hiyori's MouthForm rests at 1).
+- Never animate physics output parameters (marked ★) directly. Move the
+  head/body angles and hair etc. will sway naturally.
+- Avoid PartOpacity switching in principle: it produces unnatural
+  fade-ins/pops.
+- Register new motions into the `Action` group; never change the existing
+  groups.
+- Actions use `Loop: false` with FadeIn/Out of 0.2–0.5 s.
+- Arm/hand parameters are often hard to interpret. If no natural continuous
+  parameter can be confirmed, skip large arm gestures and express with the
+  face and body instead.
+- For a model without existing motions the range check cannot work. Stay
+  conservative within the conventional ranges of the parameter IDs
+  (angles ±30, eye open 0–1, eye balls ±1, ...) and be extra thorough with
+  the visual check.
+- Do not keep an unnatural motion: explain why and propose an alternative.
 
-## モデル固有の癖の見つけ方(ひよりで得た知見を例に)
+## Discovering model-specific quirks (lessons from Hiyori as an example)
 
-パラメータの「効き方」はモデルごとに違う。既存モーションの使い方から学ぶこと。
-ひよりの例:
+How a parameter "reads" differs per model. Learn from how the existing
+motions use them. Hiyori examples:
 
-- 笑顔目(^^)は **EyeOpen=0 + EyeSmile=1 の組み合わせ**で出る(EyeOpen=1のまま
-  Smileを上げてもほぼ変化しない)。既存モーションでの併用パターンを見て発見した。
-- MouthForm の基本値は 1(0ではない)。びっくりの「お」の口は -1.5 前後。
-- ヨー回転(AngleX)は見た目の変化が控えめで、首ふりは±20以上でないと読み取れない。
-- アイドル中の腕位置(ArmLA/RA=-10)のような「置きポーズ」があるので、
-  アクションで腕を動かすと前後のつながりが崩れやすい。
+- The smiling-arc eyes (^^) come from **EyeOpen=0 combined with EyeSmile=1**
+  (raising Smile while EyeOpen=1 barely changes anything). Discovered from
+  the combination patterns in the existing motions.
+- The resting MouthForm is 1 (not 0). The surprised "o" mouth is around -1.5.
+- Yaw (AngleX) reads subtly; a head shake needs ±20 or more to be legible.
+- Idle motions park the arms (ArmLA/RA=-10), so moving the arms in an action
+  easily breaks continuity with the surrounding idle.
 
-新しいモデルでは同種の癖を「既存モーションのカーブの使い方」から再発見する。
+For a new model, rediscover this kind of quirk from how its existing motion
+curves use the parameters.
 
-## WebUIのデバッグフック(index.html)
+## WebUI debug hooks (index.html)
 
-| クエリ | 動作 |
+| Query | Effect |
 |---|---|
-| `?play=Action:0` | ロード後に指定モーションを自動再生 |
-| `&freeze=1.2` | 再生開始からその秒数でポーズを固定(描画は継続) |
-| `?uitest=1` | ドラッグ/ズームを合成イベントで実行し結果をステータス欄に表示 |
-| `?model=<path>` | model.config.json を使わず指定モデルを読み込む |
+| `?play=Action:0` | Auto-play the given motion after load |
+| `&freeze=1.2` | Pin the pose at that many seconds after playback starts (rendering continues) |
+| `?uitest=1` | Run a synthetic drag/zoom event test; results appear in the status bar |
+| `?model=<path>` | Load the given model instead of model.config.json |
 
-## ヘッドレスブラウザ検証の落とし穴(実測済み・重要)
+## Headless-browser verification pitfalls (measured; important)
 
-`tools/verify_browser.sh` を使えばすべて対処済み。自前でやる場合の注意:
+`tools/verify_browser.sh` already handles all of these. If you roll your own:
 
-- `--virtual-time-budget` では**モーションの時間が進まない**(playing=trueのまま
-  0フレーム目で止まる)。実時間 + `--timeout=30000` を使う。
-- `--dump-dom` は `--timeout` を待たず load 直後に出力する。状態確認は
-  `--screenshot` の画像で行う(ステータス欄の文字列も画像から読める)。
-- WebGLは `--disable-gpu` だと初期化に失敗する。
-  `--use-angle=swiftshader-webgl --enable-unsafe-swiftshader` を使う。
-- スクリーンショットはネットワークアイドル到達後すぐ撮られることがある。
-  「何秒後の見た目」の検証はスリープに頼らず `&freeze=` でポーズを固定する。
-- キャンバスが空白になる場合: `PIXI.Application` に `preserveDrawingBuffer: true`
-  が必要(index.htmlは設定済み)。ticker停止による静止はスクリーンショットに
-  写らないので不可(freezeはモーション更新のみ止める方式)。
+- `--virtual-time-budget` does **not advance motion time** (playback stays on
+  frame 0 with playing=true). Use real time + `--timeout=30000`.
+- `--dump-dom` does not wait for `--timeout`; it dumps right after load.
+  Check state via `--screenshot` images instead (the status bar text is
+  readable from the image).
+- WebGL fails to initialize with `--disable-gpu`. Use
+  `--use-angle=swiftshader-webgl --enable-unsafe-swiftshader`.
+- Screenshots may be taken right after network idle. To verify "what it looks
+  like at N seconds", never rely on sleeps — pin the pose with `&freeze=`.
+- If the canvas comes out blank: `PIXI.Application` needs
+  `preserveDrawingBuffer: true` (already set in index.html). Freezing by
+  stopping the ticker does not show up in screenshots — that is why freeze
+  stops only the motion updates.
 
-## 完了条件(Definition of Done)
+## Definition of Done
 
-1. `validate_motions.py` が exit 0
-2. `verify_browser.sh` の全スクリーンショットで意図した表情・ポーズが目視確認できる
-   (基本ポーズのままなら再生に失敗している。破綻・不自然なフェードがないこと)
-3. 既存モーション・既存グループを壊していない(model3.jsonの差分がActionのみ)
-4. ユーザーに確認用URL(ローカルサーバー)を案内済み
+1. `validate_motions.py` exits 0
+2. Every `verify_browser.sh` screenshot shows the intended expression/pose
+   (still in the base pose = playback failed; no artifacts or unnatural fades)
+3. Existing motions and groups are untouched (the model3.json diff is the
+   Action group only)
+4. The user has been given the local-server URL to check
 
-## ライセンス上の注意
+## License cautions
 
-Live2Dのモデルデータは多くの場合再配布不可。`models/` `local-assets/`
-`model.config.json` は.gitignore済みで、**コミットしてはならない**。
-git管理対象は index.html / tools / ドキュメントのみ。
+Live2D model data is usually not redistributable. `models/`, `local-assets/`
+and `model.config.json` are git-ignored and **must never be committed**.
+Only index.html / tools / docs are under version control.
