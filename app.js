@@ -466,6 +466,103 @@ async function setupLayerEditor(model, modelJson) {
   setSaveState(hasSavedOrder ? t.layerLoaded : "", hasSavedOrder ? "saved" : "");
 }
 
+async function setupModelAwareGaze(model, app, modelJson) {
+  const canvas = app.view;
+  const internalModel = model.internalModel;
+  const coreModel = internalModel?.coreModel;
+  const labels = await loadDrawableLabels(modelJson);
+  const drawableIds = coreModel?.getDrawableIds ? Array.from(coreModel.getDrawableIds()) : [];
+  const drawables = drawableIds.map((id) => {
+    const index = coreModel.getDrawableIndex(id);
+    return {
+      id,
+      name: labels.get(id) || id,
+      bounds: internalModel.getDrawableBounds(index),
+    };
+  });
+  const geometry = window.Live2DGaze?.buildGeometry(drawables);
+  const point = new PIXI.Point();
+  let lastTarget = { x: 0, y: 0, amplitude: 0 };
+
+  function publishDebug() {
+    if (!params.has("gazedebug")) return;
+    document.documentElement.dataset.gazeTarget = JSON.stringify(lastTarget);
+    document.documentElement.dataset.gazeFocus = JSON.stringify({
+      x: internalModel.focusController.x,
+      y: internalModel.focusController.y,
+      targetX: internalModel.focusController.targetX,
+      targetY: internalModel.focusController.targetY,
+    });
+  }
+
+  function reset() {
+    lastTarget = { x: 0, y: 0, amplitude: 0 };
+    internalModel.focusController.focus(0, 0);
+    publishDebug();
+  }
+
+  function onPointerMove(event) {
+    const rect = canvas.getBoundingClientRect();
+    const screenX = (event.clientX - rect.left) * (app.screen.width / rect.width);
+    const screenY = (event.clientY - rect.top) * (app.screen.height / rect.height);
+
+    if (!geometry) {
+      model.focus(screenX, screenY);
+      return;
+    }
+
+    point.set(screenX, screenY);
+    model.toModelPosition(point, point);
+    lastTarget = window.Live2DGaze.targetForPoint(geometry, point);
+    internalModel.focusController.focus(lastTarget.x, lastTarget.y);
+    publishDebug();
+  }
+
+  canvas.addEventListener("pointermove", onPointerMove);
+  canvas.addEventListener("pointerleave", reset);
+  reset();
+  if (params.has("gazedebug")) {
+    const topLeft = model.toGlobal(new PIXI.Point(geometry?.eyeBounds.x || 0, geometry?.eyeBounds.y || 0));
+    const bottomRight = model.toGlobal(new PIXI.Point(
+      (geometry?.eyeBounds.x || 0) + (geometry?.eyeBounds.width || 0),
+      (geometry?.eyeBounds.y || 0) + (geometry?.eyeBounds.height || 0),
+    ));
+    document.documentElement.dataset.gazeReady = "true";
+    document.documentElement.dataset.gazeGeometry = JSON.stringify(geometry);
+    document.documentElement.dataset.gazeWorldBounds = JSON.stringify({
+      x: topLeft.x,
+      y: topLeft.y,
+      width: bottomRight.x - topLeft.x,
+      height: bottomRight.y - topLeft.y,
+    });
+    if (geometry) {
+      const right = geometry.eyeBounds.x + geometry.eyeBounds.width;
+      document.documentElement.dataset.gazeSamples = JSON.stringify({
+        betweenEyes: window.Live2DGaze.targetForPoint(geometry, {
+          x: geometry.centerX,
+          y: geometry.irisMidY,
+        }),
+        nearRight: window.Live2DGaze.targetForPoint(geometry, {
+          x: right + geometry.reach * 0.1,
+          y: geometry.irisMidY,
+        }),
+        farRight: window.Live2DGaze.targetForPoint(geometry, {
+          x: right + geometry.reach * 2,
+          y: geometry.irisMidY,
+        }),
+        farAbove: window.Live2DGaze.targetForPoint(geometry, {
+          x: geometry.centerX,
+          y: geometry.eyeBounds.y - geometry.reach * 2,
+        }),
+      });
+    }
+  }
+  return {
+    geometry,
+    get target() { return { ...lastTarget }; },
+  };
+}
+
 async function main() {
   const modelJson = params.get("model") || await loadAvatarCatalog();
   const stage = document.getElementById("stage");
@@ -478,7 +575,7 @@ async function main() {
   });
   stage.appendChild(app.view);
 
-  const model = await PIXI.live2d.Live2DModel.from(modelJson);
+  const model = await PIXI.live2d.Live2DModel.from(modelJson, { autoInteract: false });
   app.stage.addChild(model);
   await setupLayerEditor(model, modelJson);
 
@@ -494,6 +591,8 @@ async function main() {
   }
   layout();
   app.renderer.on("resize", () => { if (!userAdjusted) layout(); });
+  const gaze = await setupModelAwareGaze(model, app, modelJson);
+  if (params.has("gazedebug")) window.__live2dGazeDebug = { app, model, gaze };
 
   model.interactive = true;
   model.buttonMode = true;
