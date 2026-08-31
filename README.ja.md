@@ -62,6 +62,8 @@ python3 tools/serve.py              # サーバー起動 (デフォルトポー�
 
 ## WebUIの使い方
 
+- セレクターからアバターを選択できます。ひよりが常に初期設定で、「新しいアバターを生成…」が常に2番目、その下にローカルで生成済みのアバターが並びます。
+- 「新しいアバターを生成…」では、説明文から Gemini画像生成 → See-throughレイヤー分解 → Live2D自動リグを実行し、完成したアバターを自動選択します。
 - **今回追加したモーション**(★付きカード)のボタンで再生。既存モーションは折りたたみから展開
 - アバターは**ドラッグで移動**、**ホイール/ピンチで拡大縮小**。「表示リセット」で初期配置に戻る
 - デバッグ用クエリパラメータ: `?play=Action:0`(自動再生)/ `&freeze=1.2`(指定秒でポーズ固定)/ `?uitest=1`(ドラッグ・ズームの自動テスト)
@@ -83,21 +85,41 @@ tools/verify_browser.sh   # ヘッドレスChromeでピーク時のポーズを�
 
 設計ルール(値域・基本姿勢復帰・物理パラメータ回避など)とモデル固有の知見は [AGENTS.md](AGENTS.md) にまとまっています。人間が読んでも役立ちます。
 
+## 説明文からLive2Dアバターを生成する(実験的)
+
+```bash
+git submodule update --init --recursive
+python3 tools/setup_avatar_pipeline.py
+python3 tools/serve.py
+```
+
+Gemini APIキーはローカルPythonサーバーだけが既存Hallway `.env`から読み込み、
+ブラウザJavaScriptや本リポジトリにはコピーしません。初回はSee-throughのモデル
+ウェイト(約10〜15 GB)をダウンロードするため時間がかかります。生成物とレジストリは
+git管理外の`local-assets/`に保存されます。詳細は
+[docs/avatar-generation.md](docs/avatar-generation.md)を参照してください。
+
 ## リポジトリ構成
 
 ```
-index.html                  WebUI(静的HTML、ビルド不要)。model.config.json からモデルを解決
+index.html, app.js, styles.css
+                            WebUI(ビルド不要)。アバター選択+生成フロー
 tools/
   setup_model.py            モデル配置(zip/フォルダ → models/)+ model.config.json 生成
   analyze_model.py          パラメータ・値域・物理出力の分析
   gen_motions.py            生成エンジン(モデル非依存)。定義から生成+登録(冪等)
   validate_motions.py       独立実装のバリデータ
-  serve.py                  ローカルWebUIサーバー(デフォルトポート: 17342)
+  serve.py                  ローカルWebUI+生成ジョブAPI(デフォルトポート: 17342)
+  run_seethrough.py         See-throughレイヤー分解を実行
+  rig_avatar.py             PSDからLive2Dバンドルを生成
+  setup_avatar_pipeline.py  Python 3.12/MPS環境をセットアップ
   verify_browser.sh         ヘッドレスChromeでの実描画検証 ※macOSのChromeパスを想定(env CHROME で変更可)
 motion-defs/<モデル名>.py    モーション定義(モデルごとの創作物) [git管理外・同梱サンプルのみ追跡]
 AGENTS.md                   AIエージェント向け作業ガイド
 model.config.json           [git管理外] 現在のモデル設定(setup_model.pyが生成)
 local-assets/ , models/     [git管理外] Live2Dモデルデータ(ライセンス上、非同梱)
+vendor/see-through/         See-through Gitサブモジュール
+vendor/image2live2d/        自動リグ用Gitサブモジュール
 ```
 
 ## ライセンス

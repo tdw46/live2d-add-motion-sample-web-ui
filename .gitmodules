@@ -2,3 +2,6 @@
 	path = vendor/see-through
 	url = https://github.com/tdw46/hallway_avatar_gen.git
 	branch = see-through-mps
+[submodule "vendor/image2live2d"]
+	path = vendor/image2live2d
+	url = https://github.com/Wzhang3912/image2live2d.git

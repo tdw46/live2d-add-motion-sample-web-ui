@@ -73,7 +73,18 @@ Install normal macOS PyTorch wheels, not the upstream CUDA wheel command. Do
 not enable group offload during initial MPS validation; the successful MPS
 report did not use it.
 
-This branch does not download model weights or claim runtime success on this
-Mac yet. A real inference run requires the Python environment, Hugging Face
-model downloads, substantial unified memory, and visual inspection of the
-generated layers and depth ordering.
+## Local runtime result (2026-08-31)
+
+The `mps-smoke` profile completed successfully on this Apple Silicon Mac with
+PyTorch 2.13.0 reporting MPS built and available. The first run, including
+model downloads, produced a 22-layer 768×768 PSD in 9 minutes 48 seconds.
+
+The tested illustration exposed the open MPS depth-quality limitation: its
+face layer contained only a jaw contour. `tools/rig_avatar.py` detects that
+specific incomplete-face condition, reconstructs a skin plane behind the
+separately extracted eyes/mouth/hair, and then runs the rig bridge. The repaired
+rig passed `image2live2d` lint, parameter-sweep, landmark, motion, and
+plausibility QA and loaded in the real Cubism Web runtime with motion playback.
+
+The `community-quality` profile has not yet been run on this Mac. Treat MPS
+output as experimental and visually review important generated characters.

@@ -1,6 +1,11 @@
 # ローカル専用素材(Live2Dサンプルモデルの原本・プロンプト等。ライセンス上リポジトリに含めない)
 local-assets/
 
+# Local Python environment for Gemini -> See-through -> Live2D generation
+.venv-avatar/
+__pycache__/
+*.pyc
+
 # 実行用モデルデータ(Live2Dサンプルモデル。ライセンス上リポジトリに含めない)
 models/
 
