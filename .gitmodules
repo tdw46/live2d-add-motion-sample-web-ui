@@ -1,0 +1,4 @@
+[submodule "vendor/see-through"]
+	path = vendor/see-through
+	url = https://github.com/tdw46/hallway_avatar_gen.git
+	branch = see-through-mps
