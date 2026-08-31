@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.serve import select_semantic_psd
+from tools.serve import select_semantic_psd, validate_layer_order
 
 
 class SelectSemanticPsdTests(unittest.TestCase):
@@ -33,6 +33,22 @@ class SelectSemanticPsdTests(unittest.TestCase):
 
             with self.assertRaisesRegex(RuntimeError, "semantic color-layer PSD"):
                 select_semantic_psd(root, "source")
+
+
+class LayerOrderValidationTests(unittest.TestCase):
+    def test_accepts_unique_drawable_ids(self):
+        self.assertEqual(
+            validate_layer_order(["hair_back", "face", "hair_front"]),
+            ["hair_back", "face", "hair_front"],
+        )
+
+    def test_rejects_duplicate_drawable_ids(self):
+        with self.assertRaisesRegex(ValueError, "Duplicate drawable ID"):
+            validate_layer_order(["face", "face"])
+
+    def test_rejects_non_array_layer_order(self):
+        with self.assertRaisesRegex(ValueError, "must be an array"):
+            validate_layer_order("face")
 
 
 if __name__ == "__main__":

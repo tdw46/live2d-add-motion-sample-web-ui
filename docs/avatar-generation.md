@@ -7,6 +7,11 @@ in git-ignored `local-assets/`. The selector order is:
 2. Generate new…
 3. Generated avatars, newest first
 
+Once an avatar is loaded, the viewer's **Layer order** panel lists its Cubism
+drawables front-to-back. Drag rows or use the arrow controls to preview a new
+stack immediately, then save it. Per-avatar order is stored in the ignored
+`local-assets/avatar-viewer-metadata.json` and reapplied after reload.
+
 ## Data flow
 
 ```text

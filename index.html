@@ -25,6 +25,22 @@
       <p id="avatarHint" class="sub" data-i18n="avatarHint">Hiyori stays the default; generated avatars appear here.</p>
     </section>
 
+    <details id="layerEditor" class="group" open hidden>
+      <summary>
+        <span data-i18n="layerOrder">Layer order</span>
+        <span id="layerCount" class="count">0</span>
+      </summary>
+      <div class="body layer-editor-body">
+        <p class="layer-hint" data-i18n="layerHint">Frontmost is at the top. Drag layers or use the arrow buttons.</p>
+        <ol id="layerList"></ol>
+        <p id="layerSaveStatus" class="layer-save-status" aria-live="polite"></p>
+        <div class="layer-actions">
+          <button id="resetLayerOrder" type="button" class="secondary" data-i18n="restoreLayerOrder">Restore model order</button>
+          <button id="saveLayerOrder" type="button" data-i18n="saveLayerOrder">Save order</button>
+        </div>
+      </div>
+    </details>
+
     <section id="newActions">
       <div class="card-title">
         <span data-i18n="newActions">Newly added motions</span>

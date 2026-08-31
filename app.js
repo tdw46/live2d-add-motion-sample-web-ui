@@ -10,6 +10,12 @@ const generatedPreview = document.getElementById("generatedPreview");
 const submitGenerate = document.getElementById("submitGenerate");
 const cancelGenerate = document.getElementById("cancelGenerate");
 const closeDialog = document.getElementById("closeDialog");
+const layerEditor = document.getElementById("layerEditor");
+const layerCount = document.getElementById("layerCount");
+const layerList = document.getElementById("layerList");
+const layerSaveStatus = document.getElementById("layerSaveStatus");
+const resetLayerOrder = document.getElementById("resetLayerOrder");
+const saveLayerOrder = document.getElementById("saveLayerOrder");
 const params = new URLSearchParams(location.search);
 
 const localeOverride = params.get("lang");
@@ -35,6 +41,17 @@ const messages = {
     generateButton: "Generate avatar",
     submitting: "Starting the local generation pipeline…",
     jobQueued: "Queued behind any avatar currently being generated…",
+    layerOrder: "Layer order",
+    layerHint: "Frontmost is at the top. Drag layers or use the arrow buttons.",
+    restoreLayerOrder: "Restore model order",
+    saveLayerOrder: "Save order",
+    moveLayerUp: (name) => `Move ${name} toward the front`,
+    moveLayerDown: (name) => `Move ${name} toward the back`,
+    layerUnsaved: "Unsaved layer changes",
+    layerSaved: "Layer order saved to this avatar",
+    layerLoaded: "Saved layer order applied",
+    layerRestored: "Model order restored — save to keep it",
+    layerSaveFailed: (message) => `Could not save layer order: ${message}`,
     newActions: "Newly added motions",
     drag: "Drag",
     dragHint: "move the avatar",
@@ -68,6 +85,17 @@ const messages = {
     generateButton: "アバターを生成",
     submitting: "ローカル生成パイプラインを開始しています…",
     jobQueued: "先に実行中のアバター生成が終わるまで待機しています…",
+    layerOrder: "レイヤー順序",
+    layerHint: "一番上が最前面です。ドラッグまたは矢印ボタンで並べ替えます。",
+    restoreLayerOrder: "モデルの順序に戻す",
+    saveLayerOrder: "順序を保存",
+    moveLayerUp: (name) => `${name}を前面へ移動`,
+    moveLayerDown: (name) => `${name}を背面へ移動`,
+    layerUnsaved: "レイヤー順序は未保存です",
+    layerSaved: "このアバターにレイヤー順序を保存しました",
+    layerLoaded: "保存済みのレイヤー順序を適用しました",
+    layerRestored: "モデル順序に戻しました。保存すると維持されます。",
+    layerSaveFailed: (message) => `レイヤー順序を保存できませんでした: ${message}`,
     newActions: "今回追加したモーション",
     drag: "ドラッグ",
     dragHint: "アバターを移動",
@@ -250,6 +278,194 @@ generateForm.addEventListener("submit", async (event) => {
   }
 });
 
+async function loadDrawableLabels(modelJson) {
+  try {
+    const modelUrl = new URL(modelJson, document.baseURI);
+    const definition = await fetchJson(modelUrl);
+    const displayInfo = definition.FileReferences?.DisplayInfo;
+    if (!displayInfo) return new Map();
+    const cdi = await fetchJson(new URL(displayInfo, modelUrl));
+    return new Map((cdi.Parts || []).map((part) => [part.Id, part.Name || part.Id]));
+  } catch {
+    return new Map();
+  }
+}
+
+function normalizedLayerOrder(savedOrder, modelOrder) {
+  const available = new Set(modelOrder);
+  const seen = new Set();
+  const normalized = [];
+  if (Array.isArray(savedOrder)) {
+    savedOrder.forEach((id) => {
+      if (available.has(id) && !seen.has(id)) {
+        normalized.push(id);
+        seen.add(id);
+      }
+    });
+  }
+  modelOrder.forEach((id) => {
+    if (!seen.has(id)) normalized.push(id);
+  });
+  return normalized;
+}
+
+async function setupLayerEditor(model, modelJson) {
+  if (!currentAvatar) return;
+  const internalModel = model.internalModel;
+  const coreModel = internalModel?.coreModel;
+  const renderer = internalModel?.renderer;
+  if (!coreModel?.getDrawableIds || !coreModel?.getDrawableRenderOrders || !renderer?.doDrawModel) {
+    return;
+  }
+
+  const drawableIds = Array.from(coreModel.getDrawableIds());
+  const initialRenderOrders = Array.from(coreModel.getDrawableRenderOrders());
+  const modelOrder = drawableIds
+    .map((id, index) => ({ id, order: initialRenderOrders[index] }))
+    .sort((left, right) => right.order - left.order)
+    .map((entry) => entry.id);
+  let currentOrder = normalizedLayerOrder(currentAvatar.viewer?.layer_order, modelOrder);
+  let savedOrder = [...currentOrder];
+  let draggedId = null;
+
+  function applyLayerOrder() {
+    const renderOrders = coreModel.getDrawableRenderOrders();
+    currentOrder.forEach((id, frontIndex) => {
+      const drawableIndex = coreModel.getDrawableIndex(id);
+      if (drawableIndex >= 0) renderOrders[drawableIndex] = currentOrder.length - 1 - frontIndex;
+    });
+  }
+
+  const originalDrawModel = renderer.doDrawModel.bind(renderer);
+  renderer.doDrawModel = () => {
+    applyLayerOrder();
+    originalDrawModel();
+  };
+  applyLayerOrder();
+
+  const labels = await loadDrawableLabels(modelJson);
+  layerCount.textContent = drawableIds.length;
+  layerEditor.hidden = false;
+
+  function setSaveState(message, className = "") {
+    layerSaveStatus.textContent = message;
+    layerSaveStatus.className = `layer-save-status ${className}`.trim();
+    saveLayerOrder.disabled = JSON.stringify(currentOrder) === JSON.stringify(savedOrder);
+  }
+
+  function moveLayer(fromIndex, toIndex) {
+    if (fromIndex < 0 || fromIndex >= currentOrder.length) return;
+    const boundedTarget = Math.max(0, Math.min(currentOrder.length - 1, toIndex));
+    if (fromIndex === boundedTarget) return;
+    const [id] = currentOrder.splice(fromIndex, 1);
+    currentOrder.splice(boundedTarget, 0, id);
+    applyLayerOrder();
+    renderLayerList();
+    setSaveState(t.layerUnsaved);
+  }
+
+  function renderLayerList() {
+    layerList.replaceChildren();
+    layerList.dataset.order = currentOrder.join("|");
+    currentOrder.forEach((id, index) => {
+      const name = labels.get(id) || id.replace(/_/g, " ");
+      const row = document.createElement("li");
+      row.className = "layer-row";
+      row.dataset.drawableId = id;
+      row.draggable = true;
+
+      const handle = document.createElement("span");
+      handle.className = "layer-handle";
+      handle.textContent = "⠿";
+      handle.setAttribute("aria-hidden", "true");
+
+      const label = document.createElement("span");
+      label.className = "layer-name";
+      label.append(name);
+      const identifier = document.createElement("small");
+      identifier.textContent = id;
+      label.appendChild(identifier);
+
+      const up = document.createElement("button");
+      up.type = "button";
+      up.className = "layer-move";
+      up.textContent = "↑";
+      up.disabled = index === 0;
+      up.setAttribute("aria-label", t.moveLayerUp(name));
+      up.addEventListener("click", () => moveLayer(index, index - 1));
+
+      const down = document.createElement("button");
+      down.type = "button";
+      down.className = "layer-move";
+      down.textContent = "↓";
+      down.disabled = index === currentOrder.length - 1;
+      down.setAttribute("aria-label", t.moveLayerDown(name));
+      down.addEventListener("click", () => moveLayer(index, index + 1));
+
+      row.addEventListener("dragstart", (event) => {
+        draggedId = id;
+        row.classList.add("dragging");
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", id);
+      });
+      row.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        row.classList.add("drag-over");
+      });
+      row.addEventListener("dragleave", () => row.classList.remove("drag-over"));
+      row.addEventListener("drop", (event) => {
+        event.preventDefault();
+        row.classList.remove("drag-over");
+        const fromIndex = currentOrder.indexOf(draggedId);
+        let toIndex = currentOrder.indexOf(id);
+        if (fromIndex < toIndex) toIndex -= 1;
+        moveLayer(fromIndex, toIndex);
+      });
+      row.addEventListener("dragend", () => {
+        draggedId = null;
+        layerList.querySelectorAll(".layer-row").forEach((item) => {
+          item.classList.remove("dragging", "drag-over");
+        });
+      });
+
+      row.append(handle, label, up, down);
+      layerList.appendChild(row);
+    });
+  }
+
+  resetLayerOrder.addEventListener("click", () => {
+    currentOrder = [...modelOrder];
+    applyLayerOrder();
+    renderLayerList();
+    setSaveState(t.layerRestored);
+  });
+
+  saveLayerOrder.addEventListener("click", async () => {
+    saveLayerOrder.disabled = true;
+    try {
+      const payload = await fetchJson(
+        `/api/avatars/${encodeURIComponent(currentAvatar.id)}/viewer-metadata`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ layer_order: currentOrder }),
+        },
+      );
+      savedOrder = [...payload.viewer.layer_order];
+      currentAvatar.viewer = payload.viewer;
+      setSaveState(t.layerSaved, "saved");
+    } catch (error) {
+      setSaveState(t.layerSaveFailed(error.message), "error");
+      saveLayerOrder.disabled = false;
+    }
+  });
+
+  renderLayerList();
+  const hasSavedOrder = Array.isArray(currentAvatar.viewer?.layer_order);
+  setSaveState(hasSavedOrder ? t.layerLoaded : "", hasSavedOrder ? "saved" : "");
+}
+
 async function main() {
   const modelJson = params.get("model") || await loadAvatarCatalog();
   const stage = document.getElementById("stage");
@@ -264,6 +480,7 @@ async function main() {
 
   const model = await PIXI.live2d.Live2DModel.from(modelJson);
   app.stage.addChild(model);
+  await setupLayerEditor(model, modelJson);
 
   let userAdjusted = false;
   function layout() {

@@ -32,6 +32,7 @@ HALLWAY_ENV = Path(
     )
 )
 REGISTRY_PATH = PROJECT_ROOT / "local-assets" / "avatar-registry.json"
+VIEWER_METADATA_PATH = PROJECT_ROOT / "local-assets" / "avatar-viewer-metadata.json"
 GENERATED_ROOT = PROJECT_ROOT / "local-assets" / "generated-avatars"
 PIPELINE_PYTHON = PROJECT_ROOT / ".venv-avatar" / "bin" / "python"
 SEE_THROUGH = PROJECT_ROOT / "vendor" / "see-through"
@@ -41,6 +42,7 @@ MAX_BODY_BYTES = 32_768
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
 REGISTRY_LOCK = threading.Lock()
+VIEWER_METADATA_LOCK = threading.Lock()
 EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="avatar-generation")
 
 
@@ -104,8 +106,59 @@ def read_generated_avatars() -> list[dict]:
     return clean
 
 
+def read_viewer_metadata() -> dict[str, dict]:
+    if not VIEWER_METADATA_PATH.is_file():
+        return {}
+    try:
+        payload = json.loads(VIEWER_METADATA_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    avatars = payload.get("avatars", {}) if isinstance(payload, dict) else {}
+    return avatars if isinstance(avatars, dict) else {}
+
+
 def avatar_catalog() -> list[dict]:
-    return [default_avatar(), *read_generated_avatars()]
+    viewer_metadata = read_viewer_metadata()
+    avatars = [default_avatar(), *read_generated_avatars()]
+    return [
+        {**avatar, "viewer": viewer_metadata.get(str(avatar.get("id")), {})}
+        for avatar in avatars
+    ]
+
+
+def validate_layer_order(value) -> list[str]:
+    if not isinstance(value, list) or len(value) > 512:
+        raise ValueError("layer_order must be an array with at most 512 drawable IDs.")
+    result = []
+    seen = set()
+    for item in value:
+        if not isinstance(item, str) or not 1 <= len(item) <= 128:
+            raise ValueError("Each drawable ID must be a non-empty string up to 128 characters.")
+        if any(ord(character) < 32 for character in item):
+            raise ValueError("Drawable IDs cannot contain control characters.")
+        if item in seen:
+            raise ValueError(f"Duplicate drawable ID: {item}")
+        seen.add(item)
+        result.append(item)
+    return result
+
+
+def save_viewer_layer_order(avatar_id: str, layer_order: list[str]) -> dict:
+    with VIEWER_METADATA_LOCK:
+        metadata = read_viewer_metadata()
+        viewer = dict(metadata.get(avatar_id, {}))
+        viewer["layer_order"] = layer_order
+        viewer["updated_at"] = datetime.now(timezone.utc).isoformat()
+        metadata[avatar_id] = viewer
+        payload = {"version": 1, "avatars": metadata}
+        VIEWER_METADATA_PATH.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = VIEWER_METADATA_PATH.with_suffix(".tmp")
+        temp_path.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        temp_path.replace(VIEWER_METADATA_PATH)
+        return viewer
 
 
 def register_avatar(avatar: dict) -> None:
@@ -455,6 +508,39 @@ class AppHandler(SimpleHTTPRequestHandler):
             JOBS[job_id] = job
         EXECUTOR.submit(run_avatar_job, job_id)
         self.send_json({"job_id": job_id, "phase": "queued"}, status=202)
+
+    def do_PUT(self) -> None:
+        path = urllib_parse.urlsplit(self.path).path
+        match = re.fullmatch(
+            r"/api/avatars/([A-Za-z0-9_-]+)/viewer-metadata",
+            path,
+        )
+        if not match:
+            self.send_json({"error": "Not found."}, status=404)
+            return
+        avatar_id = match.group(1)
+        if avatar_id not in {str(avatar.get("id")) for avatar in avatar_catalog()}:
+            self.send_json({"error": "Avatar not found."}, status=404)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = 0
+        if length <= 0 or length > MAX_BODY_BYTES:
+            self.send_json({"error": "Request body is empty or too large."}, status=400)
+            return
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self.send_json({"error": "Request body must be valid JSON."}, status=400)
+            return
+        try:
+            layer_order = validate_layer_order(payload.get("layer_order"))
+        except ValueError as exc:
+            self.send_json({"error": str(exc)}, status=400)
+            return
+        viewer = save_viewer_layer_order(avatar_id, layer_order)
+        self.send_json({"avatar_id": avatar_id, "viewer": viewer})
 
 
 def main() -> None:
