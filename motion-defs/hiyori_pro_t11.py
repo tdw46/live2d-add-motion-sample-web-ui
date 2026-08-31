@@ -136,14 +136,14 @@ def define(curve, motion):
     ])
 
     # Entries registered into the "Action" group of model3.json
-    # (display name shown in the WebUI, fade-in/out seconds)
+    # (localized display names shown in the WebUI, fade-in/out seconds)
     MANIFEST = [
-        ("hiyori_happy", "喜ぶ", 0.5, 0.5),
-        ("hiyori_wink", "ウィンク", 0.5, 0.5),
-        ("hiyori_nod", "うなずき", 0.4, 0.5),
-        ("hiyori_thinking", "考え中", 0.5, 0.5),
-        ("hiyori_surprised", "びっくり", 0.2, 0.5),
-        ("hiyori_shy", "照れる", 0.5, 0.5),
-        ("hiyori_shakehead", "首ふり", 0.4, 0.5),
+        ("hiyori_happy", {"en": "Happy", "ja": "喜ぶ"}, 0.5, 0.5),
+        ("hiyori_wink", {"en": "Wink", "ja": "ウィンク"}, 0.5, 0.5),
+        ("hiyori_nod", {"en": "Nod", "ja": "うなずき"}, 0.4, 0.5),
+        ("hiyori_thinking", {"en": "Thinking", "ja": "考え中"}, 0.5, 0.5),
+        ("hiyori_surprised", {"en": "Surprised", "ja": "びっくり"}, 0.2, 0.5),
+        ("hiyori_shy", {"en": "Shy", "ja": "照れる"}, 0.5, 0.5),
+        ("hiyori_shakehead", {"en": "Head shake", "ja": "首ふり"}, 0.4, 0.5),
     ]
     return MOTIONS, MANIFEST

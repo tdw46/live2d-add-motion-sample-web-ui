@@ -35,8 +35,8 @@ In that case, execute the following autonomously:
 7. **Visual check** — take screenshots with `tools/verify_browser.sh` and
    confirm with your own eyes that the expressions and poses look right
    (if the character stays in the base pose, playback failed).
-8. **Hand over** — start `python3 -m http.server 8765` and tell the user to
-   check http://localhost:8765.
+8. **Hand over** — start `python3 tools/serve.py` and tell the user to
+   check http://localhost:17342.
 
 Deciding *what* to make (which expressions are feasible, which parameters to
 use) is the agent's job. Everything mechanical is done by the tools.
@@ -52,6 +52,7 @@ tools/
                            builds from definitions + registers into model3.json (idempotent)
   validate_motions.py      Independent validator (implemented separately from the generator)
   verify_browser.sh        Real-rendering screenshots via headless Chrome
+  serve.py                 Local WebUI server (default port: 17342)
 motion-defs/<model>.py     ★Motion definitions (per-model creative content; the single
                            source of the motions) [git-ignored; only the bundled
                            sample hiyori_pro_t11.py is tracked]
@@ -115,6 +116,7 @@ curves use the parameters.
 | `&freeze=1.2` | Pin the pose at that many seconds after playback starts (rendering continues) |
 | `?uitest=1` | Run a synthetic drag/zoom event test; results appear in the status bar |
 | `?model=<path>` | Load the given model instead of model.config.json |
+| `?lang=en` / `?lang=ja` | Override automatic browser-locale detection |
 
 ## Headless-browser verification pitfalls (measured; important)
 

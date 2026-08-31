@@ -54,8 +54,8 @@ python3 tools/setup_model.py <モデルのzipまたはフォルダ>   # 配置 +
 python3 tools/gen_motions.py        # モーション生成 + 登録
 python3 tools/validate_motions.py   # 検証(「OK」が出ること)
 
-python3 -m http.server 8765         # サーバー起動
-# → http://localhost:8765
+python3 tools/serve.py              # サーバー起動 (デフォルトポート: 17342)
+# → http://localhost:17342
 ```
 
 モーション定義はモデルごとに `motion-defs/<モデル名>.py` に置きます(同梱のサンプル定義が例)。別のモデルではパラメータ構成に合わせて定義を新しく書く必要があります — その設計こそがAIエージェントに任せる部分で、定義ファイルは `models/` と同じ作業成果物としてgit管理外になっています(モデルを切り替えてもリポジトリにdiffは出ません)。
@@ -65,6 +65,7 @@ python3 -m http.server 8765         # サーバー起動
 - **今回追加したモーション**(★付きカード)のボタンで再生。既存モーションは折りたたみから展開
 - アバターは**ドラッグで移動**、**ホイール/ピンチで拡大縮小**。「表示リセット」で初期配置に戻る
 - デバッグ用クエリパラメータ: `?play=Action:0`(自動再生)/ `&freeze=1.2`(指定秒でポーズ固定)/ `?uitest=1`(ドラッグ・ズームの自動テスト)
+- UIは英語がデフォルトで、ブラウザの優先ロケールが日本語の場合は自動的に日本語になります。`?lang=en` または `?lang=ja` で切り替えを上書きできます。
 
 ## 自分でモーションを追加するには
 
@@ -91,6 +92,7 @@ tools/
   analyze_model.py          パラメータ・値域・物理出力の分析
   gen_motions.py            生成エンジン(モデル非依存)。定義から生成+登録(冪等)
   validate_motions.py       独立実装のバリデータ
+  serve.py                  ローカルWebUIサーバー(デフォルトポート: 17342)
   verify_browser.sh         ヘッドレスChromeでの実描画検証 ※macOSのChromeパスを想定(env CHROME で変更可)
 motion-defs/<モデル名>.py    モーション定義(モデルごとの創作物) [git管理外・同梱サンプルのみ追跡]
 AGENTS.md                   AIエージェント向け作業ガイド

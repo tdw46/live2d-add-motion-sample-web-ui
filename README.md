@@ -54,8 +54,8 @@ python3 tools/setup_model.py <model zip or folder>   # place model + generate mo
 python3 tools/gen_motions.py        # generate + register motions
 python3 tools/validate_motions.py   # validate (should print "OK")
 
-python3 -m http.server 8765         # serve
-# → http://localhost:8765
+python3 tools/serve.py              # serve (default port: 17342)
+# → http://localhost:17342
 ```
 
 Motion definitions live in `motion-defs/<model-name>.py`, one file per model (a sample definition is bundled as a reference). A different model needs its own definitions matching its parameters — that design work is exactly what you delegate to the AI agent. Definition files are treated as per-model workspace artifacts and are git-ignored just like `models/`, so switching models never dirties the repository.
@@ -65,6 +65,7 @@ Motion definitions live in `motion-defs/<model-name>.py`, one file per model (a 
 - Play the newly added motions from the highlighted card (★ buttons); existing motions are in the collapsible sections below
 - **Drag** the avatar to move it, **mouse wheel / pinch** to zoom around the cursor, and "Reset view" to restore the initial placement
 - Debug query parameters: `?play=Action:0` (auto-play), `&freeze=1.2` (freeze the pose at a given second), `?uitest=1` (automated drag/zoom test)
+- The UI defaults to English and automatically uses Japanese when the browser's primary locale is Japanese. Use `?lang=en` or `?lang=ja` to override locale detection.
 
 ## Adding your own motions
 
@@ -91,6 +92,7 @@ tools/
   analyze_model.py          Analyze parameters, value ranges, physics outputs
   gen_motions.py            Generation engine (model-agnostic); builds + registers motions from definitions (idempotent)
   validate_motions.py       Independently implemented validator
+  serve.py                  Local WebUI server (default port: 17342)
   verify_browser.sh         Real-rendering verification with headless Chrome
                             (assumes the macOS Chrome path; override with env CHROME)
 motion-defs/<model>.py      Motion definitions (creative content, one file per model)

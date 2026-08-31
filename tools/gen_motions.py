@@ -111,6 +111,23 @@ def load_definitions(stem):
     return motions, manifest, def_path
 
 
+def motion_reference(name, display_name, fade_in, fade_out):
+    """Build a model3.json motion reference with optional localized names."""
+    if isinstance(display_name, dict):
+        default_name = display_name.get("en", next(iter(display_name.values())))
+    else:
+        default_name = display_name
+    entry = {
+        "File": f"motion/{name}.motion3.json",
+        "Name": default_name,
+        "FadeInTime": fade_in,
+        "FadeOutTime": fade_out,
+    }
+    if isinstance(display_name, dict):
+        entry["Names"] = display_name
+    return entry
+
+
 def main():
     runtime = resolve_runtime()
 
@@ -152,12 +169,7 @@ def main():
     model3 = json.load(open(model3_path))
     # setdefault so this also works on models that ship without any motions
     model3.setdefault("FileReferences", {}).setdefault("Motions", {})[GROUP] = [
-        {
-            "File": f"motion/{name}.motion3.json",
-            "Name": disp,
-            "FadeInTime": fin,
-            "FadeOutTime": fout,
-        }
+        motion_reference(name, disp, fin, fout)
         for name, disp, fin, fout in manifest
     ]
     with open(model3_path, "w") as fh:
