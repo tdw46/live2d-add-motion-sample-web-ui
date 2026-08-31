@@ -20,6 +20,10 @@ description
   -> browser reloads with ?avatar=<generated id>
 ```
 
+See-through also emits a sibling `*_depth.psd` for internal depth data. The
+bridge explicitly selects the semantic color-layer PSD and refuses depth/debug
+PSDs so grayscale depth planes cannot be mistaken for avatar artwork.
+
 `tools/serve.py` reads `GEMINI_API_KEY` from
 `/Users/tylerwalker/dev/Hallway/hallway-anime-facial-landmark-classifier/.env`
 unless `LIVE2D_HALLWAY_ENV` points to another file. It never returns the key to

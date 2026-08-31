@@ -121,6 +121,10 @@ def main() -> None:
     layer_dir = output_dir.parent / "rig-layers"
     if not psd_path.is_file():
         parser.error(f"PSD does not exist: {psd_path}")
+    if psd_path.stem.casefold().endswith(("_depth", "_wdepth")):
+        parser.error(
+            "Refusing to rig a See-through depth/debug PSD; pass the matching semantic color-layer PSD."
+        )
     output_dir.mkdir(parents=True, exist_ok=True)
 
     stack = from_psd(psd_path, layer_dir)

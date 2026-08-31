@@ -257,6 +257,32 @@ def _run_checked(command: list[str], *, cwd: Path) -> str:
     return result.stdout
 
 
+def select_semantic_psd(output_root: Path, source_stem: str) -> Path:
+    """Return See-through's color-layer PSD, never its depth/debug PSDs."""
+    psd_files = sorted(output_root.rglob("*.psd"))
+    semantic_psds = [
+        path
+        for path in psd_files
+        if not path.stem.casefold().endswith(("_depth", "_wdepth"))
+    ]
+    exact_matches = [path for path in semantic_psds if path.stem == source_stem]
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+
+    metadata_matches = [
+        path for path in semantic_psds if Path(f"{path}.json").is_file()
+    ]
+    if len(metadata_matches) == 1:
+        return metadata_matches[0]
+
+    if not semantic_psds:
+        raise RuntimeError(
+            "See-through completed without producing a semantic color-layer PSD."
+        )
+    choices = ", ".join(path.relative_to(output_root).as_posix() for path in semantic_psds)
+    raise RuntimeError(f"See-through produced ambiguous semantic PSD outputs: {choices}")
+
+
 def run_avatar_job(job_id: str) -> None:
     with JOBS_LOCK:
         job = JOBS[job_id].copy()
@@ -300,10 +326,7 @@ def run_avatar_job(job_id: str) -> None:
             ],
             cwd=PROJECT_ROOT,
         )
-        psd_candidates = sorted(see_output.rglob("*.psd"), key=lambda path: path.stat().st_mtime)
-        if not psd_candidates:
-            raise RuntimeError("See-through completed without producing a layered PSD.")
-        psd_path = psd_candidates[-1]
+        psd_path = select_semantic_psd(see_output, source_path.stem)
 
         update_job(
             job_id,
