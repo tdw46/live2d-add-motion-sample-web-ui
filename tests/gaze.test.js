@@ -1,6 +1,12 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { buildGeometry, distanceOutside, targetForPoint } = require("../gaze.js");
+const {
+  buildGeometry,
+  distanceOutside,
+  targetForPoint,
+  focusTarget,
+  FOCUS_SCALE,
+} = require("../gaze.js");
 
 const geometry = buildGeometry([
   { id: "eye_white_r", bounds: { x: 10, y: 20, width: 20, height: 10 } },
@@ -35,4 +41,10 @@ test("uses the iris midpoint for up and down direction", () => {
   assert.ok(down.y < 0);
   assert.equal(up.x, 0);
   assert.equal(down.x, 0);
+});
+
+test("keeps Cubism focus full-strength so head mesh deformation remains intact", () => {
+  assert.deepEqual(FOCUS_SCALE, { x: 1, y: 1 });
+  assert.deepEqual(focusTarget({ x: 0.8, y: -0.6 }), { x: 0.8, y: -0.6 });
+  assert.deepEqual(focusTarget({ x: 0, y: 0 }), { x: 0, y: 0 });
 });

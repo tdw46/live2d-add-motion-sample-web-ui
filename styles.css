@@ -66,10 +66,20 @@ button.motion {
 }
 button.motion:hover { background: #424766; }
 button.motion:active { background: #565c85; }
+button.motion.is-active {
+  background: #4b4674; border-color: #c5a6ef; box-shadow: inset 3px 0 #d6b7ff;
+}
 button.motion.new { background: #3a3f63; border-color: var(--accent-strong); }
 button.motion.new:hover { background: #474d7a; }
 button.motion.new::before { content: "★ "; color: #ffd479; }
 button.motion .file { display: block; font-size: 10px; color: #8f95ac; margin-top: 2px; }
+.motion-control { display: grid; gap: 4px; min-width: 0; }
+.motion-persist {
+  display: flex; align-items: center; gap: 6px; padding: 1px 4px 2px;
+  color: #aeb4ca; font-size: 10px; line-height: 1.25; cursor: pointer; user-select: none;
+}
+.motion-persist input { margin: 0; accent-color: var(--accent-strong); }
+.motion-persist:has(input:checked) { color: #d9c5f4; }
 
 #buttons { display: grid; gap: 8px; }
 details.group { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }

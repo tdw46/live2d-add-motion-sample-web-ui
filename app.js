@@ -66,6 +66,9 @@ const messages = {
     resetView: "Reset view (position and size)",
     missingConfig: "No default model configuration was found.",
     playing: (label) => `Playing: ${label}`,
+    dontToggleOff: "Don't toggle off",
+    toggleOffHint: "Keep this state active until its button is clicked again",
+    returningToIdle: "Returning smoothly to idle…",
     playFailed: (group, index) => `Playback failed: ${group}[${index}]`,
     existing: (group) => `Existing: ${group}`,
     idle: "Idle (the Idle group plays automatically)",
@@ -119,6 +122,9 @@ const messages = {
     resetView: "表示リセット (位置・サイズ)",
     missingConfig: "初期モデル設定が見つかりません。",
     playing: (label) => `再生中: ${label}`,
+    dontToggleOff: "自動でオフにしない",
+    toggleOffHint: "もう一度ボタンを押すまでこの状態を維持します",
+    returningToIdle: "滑らかにアイドルへ戻しています…",
     playFailed: (group, index) => `再生失敗: ${group}[${index}]`,
     existing: (group) => `既存: ${group}`,
     idle: "アイドル中 (Idleグループ自動再生)",
@@ -727,7 +733,8 @@ async function setupModelAwareGaze(model, app, modelJson) {
     point.set(screenX, screenY);
     model.toModelPosition(point, point);
     lastTarget = window.Live2DGaze.targetForPoint(geometry, point);
-    internalModel.focusController.focus(lastTarget.x, lastTarget.y);
+    const focusTarget = window.Live2DGaze.focusTarget(lastTarget);
+    internalModel.focusController.focus(focusTarget.x, focusTarget.y);
     publishDebug();
   }
 
@@ -750,7 +757,7 @@ async function setupModelAwareGaze(model, app, modelJson) {
     });
     if (geometry) {
       const right = geometry.eyeBounds.x + geometry.eyeBounds.width;
-      document.documentElement.dataset.gazeSamples = JSON.stringify({
+      const samples = {
         betweenEyes: window.Live2DGaze.targetForPoint(geometry, {
           x: geometry.centerX,
           y: geometry.irisMidY,
@@ -767,7 +774,16 @@ async function setupModelAwareGaze(model, app, modelJson) {
           x: geometry.centerX,
           y: geometry.eyeBounds.y - geometry.reach * 2,
         }),
-      });
+      };
+      document.documentElement.dataset.gazeSamples = JSON.stringify(samples);
+      document.documentElement.dataset.gazeFocusSamples = JSON.stringify(
+        Object.fromEntries(
+          Object.entries(samples).map(([name, sample]) => [
+            name,
+            window.Live2DGaze.focusTarget(sample),
+          ]),
+        ),
+      );
     }
   }
   return {
@@ -845,23 +861,287 @@ async function main() {
   const settings = model.internalModel.settings;
   const groups = settings.motions || {};
   const newGroup = "Action";
+  const motionControls = window.Live2DMotionControls;
+  const motionDefinitions = new Map();
+  const motionKey = (group, index) => `${group}\u0000${index}`;
+  const motionModelUrl = new URL(modelJson, document.baseURI);
+
+  await Promise.all(Object.entries(groups).flatMap(([group, entries]) =>
+    entries.map(async (entry, index) => {
+      let definition = null;
+      try {
+        definition = await fetchJson(new URL(entry.File, motionModelUrl), { cache: "no-store" });
+      } catch (error) {
+        console.warn(`Could not inspect motion ${group}[${index}]`, error);
+      }
+      motionDefinitions.set(motionKey(group, index), motionControls.describeMotion(group, definition, entry));
+    }),
+  ));
+
+  const motionManager = model.internalModel.motionManager;
+  const coreModel = model.internalModel.coreModel;
+  const rawCoreModel = coreModel.getModel?.();
+  const rawParameterIds = Array.from(rawCoreModel?.parameters?.ids || []);
+  const parameterCount = coreModel.getParameterCount?.()
+    ?? rawCoreModel?.parameters?.count
+    ?? rawParameterIds.length;
+  const parameterIndices = new Map();
+
+  function parameterIdText(value) {
+    if (typeof value === "string") return value;
+    const cubismString = value?.getString?.();
+    if (typeof cubismString === "string") return cubismString;
+    if (typeof cubismString?.s === "string") return cubismString.s;
+    if (typeof value?.s === "string") return value.s;
+    return String(value || "");
+  }
+
+  for (let index = 0; index < parameterCount; index += 1) {
+    const id = rawParameterIds[index] || coreModel.getParameterId?.(index);
+    parameterIndices.set(parameterIdText(id), index);
+  }
+
+  function parameterDefault(index) {
+    return coreModel.getParameterDefaultValue?.(index)
+      ?? rawCoreModel?.parameters?.defaultValues?.[index];
+  }
+
+  function parameterValue(index) {
+    return coreModel.getParameterValueByIndex?.(index)
+      ?? rawCoreModel?.parameters?.values?.[index];
+  }
+
+  let parameterRelease = null;
+
+  function beginReleaseDebug(durationMs, parameterCount) {
+    if (!params.has("motiondebug")) return;
+    document.documentElement.dataset.motionReleaseDurationMs = String(durationMs);
+    document.documentElement.dataset.motionReleaseParameterCount = String(parameterCount);
+    delete document.documentElement.dataset.motionReleaseSummary;
+    window.__live2dMotionReleaseDebug = {
+      completed: false,
+      durationMs,
+      parameterCount,
+      samples: [],
+    };
+  }
+
+  function publishReleaseProgress(progress, weight = null) {
+    if (!params.has("motiondebug")) return;
+    if (progress === null) {
+      delete document.documentElement.dataset.motionReleaseProgress;
+      const debug = window.__live2dMotionReleaseDebug;
+      if (debug) {
+        debug.completed = true;
+        const middle = debug.samples.reduce((closest, sample) => (
+          !closest || Math.abs(sample.progress - 0.5) < Math.abs(closest.progress - 0.5)
+            ? sample
+            : closest
+        ), null);
+        document.documentElement.dataset.motionReleaseSummary = JSON.stringify({
+          completed: true,
+          durationMs: debug.durationMs,
+          parameterCount: debug.parameterCount,
+          sampleCount: debug.samples.length,
+          middle,
+        });
+      }
+      return;
+    }
+    document.documentElement.dataset.motionReleaseProgress = progress.toFixed(3);
+    window.__live2dMotionReleaseDebug?.samples.push({ progress, weight });
+  }
+
+  function cancelParameterRelease() {
+    if (!parameterRelease) return;
+    const release = parameterRelease;
+    parameterRelease = null;
+    app.ticker.remove(release.tick, null);
+    publishReleaseProgress(null);
+    release.resolve(false);
+  }
+
+  function releaseParameters(parameterIds, durationMs) {
+    cancelParameterRelease();
+    const parameters = parameterIds.flatMap((id) => {
+      const index = parameterIndices.get(id);
+      if (index === undefined) return [];
+      const from = parameterValue(index);
+      const to = parameterDefault(index);
+      return Number.isFinite(from) && Number.isFinite(to) ? [{ index, from, to }] : [];
+    });
+
+    beginReleaseDebug(durationMs, parameters.length);
+    if (!parameters.length) {
+      publishReleaseProgress(null);
+      return Promise.resolve(true);
+    }
+
+    return new Promise((resolve) => {
+      const startedAt = performance.now();
+      const duration = Math.max(1, durationMs);
+      const tick = () => {
+        const progress = Math.min(1, (performance.now() - startedAt) / duration);
+        const weight = motionControls.sineEase(progress);
+        parameters.forEach(({ index, from, to }) => {
+          coreModel.setParameterValueByIndex(index, from + (to - from) * weight);
+        });
+        coreModel.saveParameters?.();
+        publishReleaseProgress(progress, weight);
+        if (progress < 1) return;
+        app.ticker.remove(tick, null);
+        if (parameterRelease?.tick === tick) parameterRelease = null;
+        publishReleaseProgress(null);
+        resolve(true);
+      };
+      parameterRelease = { tick, resolve };
+      const beforeRender = (PIXI.UPDATE_PRIORITY?.LOW ?? -25) + 1;
+      app.ticker.add(tick, null, beforeRender);
+      tick();
+    });
+  }
+
+  const avatarMotionKey = currentAvatar?.id || motionModelUrl.pathname;
+  function persistentPreferenceKey(group, index) {
+    return `live2d.motion-persistent:${avatarMotionKey}:${group}:${index}`;
+  }
+
+  function readPersistentPreference(group, index) {
+    try {
+      return localStorage.getItem(persistentPreferenceKey(group, index)) === "true";
+    } catch {
+      return false;
+    }
+  }
+
+  function writePersistentPreference(group, index, enabled) {
+    try {
+      const key = persistentPreferenceKey(group, index);
+      if (enabled) localStorage.setItem(key, "true");
+      else localStorage.removeItem(key);
+    } catch {
+      // Storage can be unavailable in privacy-restricted browser contexts.
+    }
+  }
+
+  let activeToggle = null;
+  let motionSerial = 0;
+
+  function markActive(active, enabled) {
+    active.button.classList.toggle("is-active", enabled);
+    active.button.setAttribute("aria-pressed", String(enabled));
+  }
+
+  function scheduleToggleOff(active) {
+    clearTimeout(active.timer);
+    if (active.persistCheckbox.checked) return;
+    active.timer = setTimeout(() => {
+      if (activeToggle === active) void deactivateToggle();
+    }, motionControls.AUTO_OFF_MS);
+  }
+
+  async function resumeIdle() {
+    if (!groups.Idle?.length) return;
+    await model.motion("Idle", 0, PIXI.live2d.MotionPriority.FORCE);
+  }
+
+  async function deactivateToggle({ resume = true, updateStatus = true } = {}) {
+    const active = activeToggle;
+    if (!active) return;
+    activeToggle = null;
+    const releaseSerial = ++motionSerial;
+    clearTimeout(active.timer);
+    markActive(active, false);
+    motionManager.stopAllMotions();
+    if (updateStatus) statusElement.textContent = t.returningToIdle;
+    const completed = await releaseParameters(active.info.parameterIds, active.info.releaseDurationMs);
+    if (!completed || releaseSerial !== motionSerial) return;
+    if (resume) await resumeIdle();
+    if (updateStatus) statusElement.textContent = t.idle;
+  }
 
   function motionButton(group, entry, index) {
+    const info = motionDefinitions.get(motionKey(group, index));
+    const wrapper = document.createElement("div");
+    wrapper.className = "motion-control";
+    wrapper.dataset.motionGroup = group;
+    wrapper.dataset.motionIndex = String(index);
+    wrapper.dataset.motionParameterCount = String(info.parameterIds.length);
+    wrapper.dataset.motionReleaseMs = String(info.releaseDurationMs);
     const button = document.createElement("button");
     button.className = `motion${group === newGroup ? " new" : ""}`;
-    const file = entry.File.split("/").pop().replace(".motion3.json", "");
-    const label = entry.Names?.[locale] || entry.Name || file;
+    button.type = "button";
+    button.setAttribute("aria-pressed", "false");
+    const file = decodeURIComponent(new URL(entry.File, motionModelUrl).pathname.split("/").pop())
+      .replace(/\.motion3\.json$/i, "");
+    const groupLabel = group.replace(/[_-]+/g, " ");
+    const fallbackLabel = groups[group].length === 1 ? groupLabel : `${groupLabel} ${index + 1}`;
+    const label = entry.Names?.[locale] || entry.Name || fallbackLabel;
     button.append(label);
     const small = document.createElement("span");
     small.className = "file";
     small.textContent = file;
     button.appendChild(small);
+    wrapper.appendChild(button);
+
+    let persistCheckbox = null;
+    if (info.toggleable) {
+      const persistLabel = document.createElement("label");
+      persistLabel.className = "motion-persist";
+      persistLabel.title = t.toggleOffHint;
+      persistCheckbox = document.createElement("input");
+      persistCheckbox.type = "checkbox";
+      persistCheckbox.checked = readPersistentPreference(group, index);
+      persistCheckbox.setAttribute("aria-label", `${label}: ${t.dontToggleOff}`);
+      persistLabel.append(persistCheckbox, t.dontToggleOff);
+      wrapper.appendChild(persistLabel);
+
+      persistCheckbox.addEventListener("change", () => {
+        writePersistentPreference(group, index, persistCheckbox.checked);
+        const active = activeToggle;
+        if (!active || active.group !== group || active.index !== index) return;
+        if (!persistCheckbox.checked) {
+          scheduleToggleOff(active);
+          return;
+        }
+        clearTimeout(active.timer);
+        if (active.info.replayWhilePersistent && !motionManager.playing) {
+          void model.motion(group, index, PIXI.live2d.MotionPriority.FORCE);
+        }
+      });
+    }
+
     button.onclick = async () => {
+      cancelParameterRelease();
+      if (activeToggle?.group === group && activeToggle.index === index) {
+        await deactivateToggle();
+        return;
+      }
+      if (activeToggle) await deactivateToggle({ resume: false, updateStatus: false });
+      const requestSerial = ++motionSerial;
       statusElement.textContent = t.playing(label);
       const ok = await model.motion(group, index, PIXI.live2d.MotionPriority.FORCE);
-      if (!ok) statusElement.textContent = t.playFailed(group, index);
+      if (requestSerial !== motionSerial) return;
+      if (!ok) {
+        statusElement.textContent = t.playFailed(group, index);
+        return;
+      }
+      if (info.toggleable) {
+        activeToggle = {
+          group,
+          index,
+          label,
+          button,
+          persistCheckbox,
+          info,
+          serial: requestSerial,
+          timer: null,
+        };
+        markActive(activeToggle, true);
+        scheduleToggleOff(activeToggle);
+      }
     };
-    return button;
+    return wrapper;
   }
 
   const newButtons = document.getElementById("newButtons");
@@ -888,8 +1168,19 @@ async function main() {
     container.appendChild(details);
   }
 
-  model.internalModel.motionManager.on("motionFinish", () => {
-    statusElement.textContent = t.idle;
+  motionManager.on("motionFinish", () => {
+    if (parameterRelease) return;
+    const active = activeToggle;
+    if (!active) {
+      statusElement.textContent = t.idle;
+      return;
+    }
+    if (!active.persistCheckbox.checked || !active.info.replayWhilePersistent) return;
+    const serial = active.serial;
+    setTimeout(async () => {
+      if (activeToggle !== active || active.serial !== serial) return;
+      await model.motion(active.group, active.index, PIXI.live2d.MotionPriority.FORCE);
+    }, 0);
   });
   statusElement.textContent = t.ready;
 

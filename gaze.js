@@ -7,6 +7,10 @@
   const EYE_WHITE_PATTERN = /(?:eye[^a-z]*white|white[^a-z]*eye|sclera)/i;
   const EYE_PATTERN = /(?:^|[^a-z])eye(?:[^a-z]|$)/i;
   const NON_OPEN_EYE_PATTERN = /(?:brow|closed|blink|smile|iris|irides|pupil|white|sclera)/i;
+  // Generated rigs attenuate only the head warp's positional sweep. Keep Cubism focus at full
+  // strength here so ParamAngleX/Y still produce their complete mesh-shape deformation and the eyes
+  // retain their full authored travel.
+  const FOCUS_SCALE = Object.freeze({ x: 1, y: 1 });
 
   function combinedName(drawable) {
     return `${drawable.id || ""} ${drawable.name || ""}`.replace(/_/g, " ");
@@ -85,5 +89,12 @@
     };
   }
 
-  return { buildGeometry, distanceOutside, targetForPoint };
+  function focusTarget(target) {
+    return {
+      x: target.x * FOCUS_SCALE.x,
+      y: target.y * FOCUS_SCALE.y,
+    };
+  }
+
+  return { buildGeometry, distanceOutside, targetForPoint, focusTarget, FOCUS_SCALE };
 });
