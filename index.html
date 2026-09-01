@@ -23,6 +23,8 @@
         <option>Loading avatars…</option>
       </select>
       <p id="avatarHint" class="sub" data-i18n="avatarHint">Hiyori stays the default; generated avatars appear here.</p>
+      <button id="regenerateLayers" type="button" class="secondary" hidden data-i18n="regenerateLayers">Regenerate layers</button>
+      <p id="regenerateLayersStatus" class="avatar-job-status" aria-live="polite"></p>
     </section>
 
     <details id="layerEditor" class="group" open hidden>
@@ -91,6 +93,6 @@
   <script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js"></script>
   <script src="gaze.js?v=model-aware-2"></script>
-  <script src="app.js?v=seethrough-layer-names-2"></script>
+  <script src="app.js?v=layer-visibility-solo-1"></script>
 </body>
 </html>

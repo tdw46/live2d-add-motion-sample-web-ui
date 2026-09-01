@@ -5,20 +5,76 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import statistics
 import sys
+import time
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
 IMAGE2LIVE2D_SRC = ROOT / "vendor" / "image2live2d" / "src"
+SEE_THROUGH_ROOT = ROOT / "vendor" / "see-through"
 sys.path.insert(0, str(IMAGE2LIVE2D_SRC))
+
+# LaMa is written for CUDA, but its small number of unsupported MPS operations can safely fall
+# back to CPU while the convolution-heavy work remains on Apple Silicon's GPU.
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 
 from image2live2d.backends.live2d import Live2DEmitter  # noqa: E402
 from image2live2d.backends.live2d.moc3_emit import native_moc_writer  # noqa: E402
 from image2live2d.core.decompose import from_psd  # noqa: E402
 from image2live2d.core.qa import evaluate  # noqa: E402
 from image2live2d.pipeline import rig_from_stack  # noqa: E402
+
+
+def build_cape_inpainter(psd_path: Path, mode: str):
+    """Reuse See-through's anime LaMa completion model for cape-only masked inpainting."""
+    state = {"requested": mode, "method": "smooth", "device": None, "error": None}
+    if mode == "smooth":
+        return None, state
+
+    try:
+        import numpy as np
+        import torch
+        from PIL import Image
+
+        sys.path.insert(0, str(SEE_THROUGH_ROOT))
+        from annotators.lama_inpainter import apply_inpaint
+
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
+
+        source = None
+        source_root = psd_path.parent.parent
+        for extension in (".png", ".jpg", ".jpeg", ".webp"):
+            candidate = source_root / f"{psd_path.stem}{extension}"
+            if candidate.is_file():
+                source = np.array(Image.open(candidate).convert("RGB"), dtype=np.uint8)
+                break
+
+        def inpaint(topwear_rgb, mask):
+            canvas = source if source is not None and source.shape == topwear_rgb.shape else topwear_rgb
+            try:
+                result = apply_inpaint(canvas, mask, device=device)
+            except Exception as exc:
+                state["error"] = f"{type(exc).__name__}: {exc}"
+                if mode == "lama":
+                    raise
+                return None
+            state.update(method="see-through-lama", device=device, error=None)
+            return result
+
+        return inpaint, state
+    except Exception as exc:
+        state["error"] = f"{type(exc).__name__}: {exc}"
+        if mode == "lama":
+            raise
+        return None, state
 
 
 def _alpha_bbox(path: Path):
@@ -109,11 +165,38 @@ def repair_incomplete_face(layer_dir: Path) -> bool:
     return True
 
 
+def version_model_resources(model3_path: Path, token: str | None = None) -> str:
+    """Version emitted URLs so an in-place rebuild cannot reuse an older MOC or texture."""
+    payload = json.loads(model3_path.read_text(encoding="utf-8"))
+    version = token or str(time.time_ns())
+
+    def add_version(value):
+        if isinstance(value, dict):
+            return {key: add_version(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [add_version(item) for item in value]
+        if isinstance(value, str) and value.partition("?")[0].lower().endswith(
+            (".moc3", ".png", ".json")
+        ):
+            return f"{value.split('?', 1)[0]}?v={version}"
+        return value
+
+    payload["FileReferences"] = add_version(payload.get("FileReferences", {}))
+    model3_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return version
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Rig a See-through PSD as Live2D")
     parser.add_argument("psd")
     parser.add_argument("--output", required=True)
     parser.add_argument("--name", required=True)
+    parser.add_argument(
+        "--cape-inpaint",
+        choices=("auto", "lama", "smooth"),
+        default="auto",
+        help="Cape completion method; auto reuses See-through LaMa and falls back to smoothing.",
+    )
     args = parser.parse_args()
 
     psd_path = Path(args.psd).resolve()
@@ -127,7 +210,8 @@ def main() -> None:
         )
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    stack = from_psd(psd_path, layer_dir)
+    cape_inpainter, cape_inpaint = build_cape_inpainter(psd_path, args.cape_inpaint)
+    stack = from_psd(psd_path, layer_dir, cape_inpainter=cape_inpainter)
     face_repaired = repair_incomplete_face(layer_dir)
     rig = rig_from_stack(stack, name=args.name, source=str(psd_path))
     bundle = Live2DEmitter(
@@ -136,6 +220,7 @@ def main() -> None:
     ).build(rig, output_dir)
     if not bundle.moc_written:
         raise RuntimeError("Native Live2D writer did not emit a .moc3 file.")
+    version_model_resources(bundle.model3_path)
 
     report = evaluate(rig, args.name)
     summary = {
@@ -147,6 +232,7 @@ def main() -> None:
         "physics": len(rig.physics),
         "qa_passed": report.passed,
         "face_repaired": face_repaired,
+        "cape_inpaint": cape_inpaint,
     }
     (output_dir / "rig-report.json").write_text(
         json.dumps(summary, indent=2),

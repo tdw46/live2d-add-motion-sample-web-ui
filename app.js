@@ -16,6 +16,8 @@ const layerList = document.getElementById("layerList");
 const layerSaveStatus = document.getElementById("layerSaveStatus");
 const resetLayerOrder = document.getElementById("resetLayerOrder");
 const saveLayerOrder = document.getElementById("saveLayerOrder");
+const regenerateLayers = document.getElementById("regenerateLayers");
+const regenerateLayersStatus = document.getElementById("regenerateLayersStatus");
 const params = new URLSearchParams(location.search);
 
 const localeOverride = params.get("lang");
@@ -47,6 +49,10 @@ const messages = {
     saveLayerOrder: "Save order",
     moveLayerUp: (name) => `Move ${name} toward the front`,
     moveLayerDown: (name) => `Move ${name} toward the back`,
+    hideLayer: (name) => `Hide ${name}`,
+    showLayer: (name) => `Show ${name}`,
+    soloLayer: (name) => `Show only ${name}`,
+    unsoloLayer: (name) => `Stop showing only ${name}`,
     layerUnsaved: "Unsaved layer changes",
     layerSaved: "Layer order saved to this avatar",
     layerLoaded: "Saved layer order applied",
@@ -67,6 +73,11 @@ const messages = {
     autoplay: (play, started) => `Auto-play: ${play} started=${started}`,
     error: (message) => `Error: ${message}`,
     generationFailed: (message) => `Generation failed: ${message}`,
+    regenerateLayers: "Regenerate layers",
+    regeneratingLayers: "Rebuilding from the current semantic PSD…",
+    regenerateLayersQueued: "Layer regeneration queued…",
+    regenerateLayersDone: "Layers regenerated — reloading the avatar…",
+    regenerateLayersFailed: (message) => `Could not regenerate layers: ${message}`,
   },
   ja: {
     title: (name) => `Live2D モーション追加サンプル - ${name}`,
@@ -91,6 +102,10 @@ const messages = {
     saveLayerOrder: "順序を保存",
     moveLayerUp: (name) => `${name}を前面へ移動`,
     moveLayerDown: (name) => `${name}を背面へ移動`,
+    hideLayer: (name) => `${name}を非表示`,
+    showLayer: (name) => `${name}を表示`,
+    soloLayer: (name) => `${name}だけを表示`,
+    unsoloLayer: (name) => `${name}だけの表示を解除`,
     layerUnsaved: "レイヤー順序は未保存です",
     layerSaved: "このアバターにレイヤー順序を保存しました",
     layerLoaded: "保存済みのレイヤー順序を適用しました",
@@ -111,6 +126,11 @@ const messages = {
     autoplay: (play, started) => `自動再生: ${play} started=${started}`,
     error: (message) => `エラー: ${message}`,
     generationFailed: (message) => `生成に失敗しました: ${message}`,
+    regenerateLayers: "レイヤーを再生成",
+    regeneratingLayers: "現在のセマンティックPSDから再構築しています…",
+    regenerateLayersQueued: "レイヤー再生成を待機しています…",
+    regenerateLayersDone: "レイヤーを再生成しました。アバターを再読み込みします…",
+    regenerateLayersFailed: (message) => `レイヤーを再生成できませんでした: ${message}`,
   },
 };
 const t = messages[locale];
@@ -129,6 +149,7 @@ statusElement.textContent = t.loading;
 let avatarCatalog = [];
 let currentAvatar = null;
 let activeJobId = null;
+let activeLayerJobId = null;
 
 function updateAvatarIdentity(avatar) {
   const name = avatar?.name || "Live2D";
@@ -175,9 +196,56 @@ async function loadAvatarCatalog() {
   avatarSelect.insertBefore(generateOption, avatarSelect.options[1] || null);
   avatarSelect.value = currentAvatar.id;
   avatarSelect.disabled = false;
+  regenerateLayers.hidden = !currentAvatar.can_regenerate_layers;
   updateAvatarIdentity(currentAvatar);
-  return currentAvatar.model3;
+  if (!currentAvatar.generated) return currentAvatar.model3;
+  // PIXI/live2d caches the entire model by its model3 URL. Generated bundles are rebuilt in place,
+  // so a fresh page must use a fresh settings cache key before the versioned MOC/texture URLs inside
+  // the newly emitted model3 can take effect.
+  const modelUrl = new URL(currentAvatar.model3, document.baseURI);
+  modelUrl.searchParams.set("build", Date.now().toString());
+  return modelUrl.href;
 }
+
+async function pollLayerRegeneration(jobId) {
+  while (activeLayerJobId === jobId) {
+    const job = await fetchJson(`/api/avatar-jobs/${encodeURIComponent(jobId)}`);
+    regenerateLayersStatus.textContent = job.message || t.regenerateLayersQueued;
+    if (job.phase === "complete") {
+      activeLayerJobId = null;
+      regenerateLayersStatus.textContent = t.regenerateLayersDone;
+      regenerateLayersStatus.className = "avatar-job-status success";
+      const next = new URL(location.href);
+      next.searchParams.set("layers", Date.now().toString());
+      location.assign(next);
+      return;
+    }
+    if (job.phase === "failed") {
+      throw new Error(job.error || "Unknown error");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+}
+
+regenerateLayers.addEventListener("click", async () => {
+  if (!currentAvatar?.can_regenerate_layers || activeLayerJobId) return;
+  regenerateLayers.disabled = true;
+  regenerateLayersStatus.className = "avatar-job-status";
+  regenerateLayersStatus.textContent = t.regeneratingLayers;
+  try {
+    const payload = await fetchJson(
+      `/api/avatars/${encodeURIComponent(currentAvatar.id)}/regenerate-layers`,
+      { method: "POST" },
+    );
+    activeLayerJobId = payload.job_id;
+    await pollLayerRegeneration(activeLayerJobId);
+  } catch (error) {
+    activeLayerJobId = null;
+    regenerateLayers.disabled = false;
+    regenerateLayersStatus.textContent = t.regenerateLayersFailed(error.message);
+    regenerateLayersStatus.className = "avatar-job-status error";
+  }
+});
 
 function openGenerator() {
   avatarSelect.value = currentAvatar.id;
@@ -394,7 +462,12 @@ async function setupLayerEditor(model, modelJson) {
   const internalModel = model.internalModel;
   const coreModel = internalModel?.coreModel;
   const renderer = internalModel?.renderer;
-  if (!coreModel?.getDrawableIds || !coreModel?.getDrawableRenderOrders || !renderer?.doDrawModel) {
+  if (
+    !coreModel?.getDrawableIds ||
+    !coreModel?.getDrawableRenderOrders ||
+    !coreModel?.getDrawableOpacity ||
+    !renderer?.doDrawModel
+  ) {
     return;
   }
 
@@ -406,6 +479,8 @@ async function setupLayerEditor(model, modelJson) {
     .map((entry) => entry.id);
   let currentOrder = normalizedLayerOrder(currentAvatar.viewer?.layer_order, modelOrder);
   let savedOrder = [...currentOrder];
+  const hiddenIds = new Set();
+  let soloId = null;
   let draggedId = null;
 
   function applyLayerOrder() {
@@ -415,6 +490,15 @@ async function setupLayerEditor(model, modelJson) {
       if (drawableIndex >= 0) renderOrders[drawableIndex] = currentOrder.length - 1 - frontIndex;
     });
   }
+
+  // Cubism 4 exposes opacity as a per-drawable getter rather than a mutable opacity array. Wrap the
+  // getter so hidden/solo state composes with native animated opacity (blink, expressions, etc.).
+  const originalGetDrawableOpacity = coreModel.getDrawableOpacity.bind(coreModel);
+  coreModel.getDrawableOpacity = (drawableIndex) => {
+    const id = drawableIds[drawableIndex];
+    const shouldShow = soloId ? id === soloId : !hiddenIds.has(id);
+    return shouldShow ? originalGetDrawableOpacity(drawableIndex) : 0;
+  };
 
   const originalDrawModel = renderer.doDrawModel.bind(renderer);
   renderer.doDrawModel = () => {
@@ -446,6 +530,7 @@ async function setupLayerEditor(model, modelJson) {
   }
 
   function renderLayerList() {
+    const previousScrollTop = layerList.scrollTop;
     layerList.replaceChildren();
     layerList.dataset.order = currentOrder.join("|");
     currentOrder.forEach((id, index) => {
@@ -455,6 +540,9 @@ async function setupLayerEditor(model, modelJson) {
       row.dataset.drawableId = id;
       row.title = id;
       row.draggable = true;
+      row.classList.toggle("layer-hidden", hiddenIds.has(id));
+      row.classList.toggle("layer-solo", soloId === id);
+      row.classList.toggle("layer-solo-muted", Boolean(soloId && soloId !== id));
 
       const handle = document.createElement("span");
       handle.className = "layer-handle";
@@ -474,6 +562,36 @@ async function setupLayerEditor(model, modelJson) {
       const label = document.createElement("span");
       label.className = "layer-name";
       label.append(name);
+
+      const visibility = document.createElement("button");
+      const isVisible = !hiddenIds.has(id);
+      visibility.type = "button";
+      visibility.className = `layer-tool layer-visibility${isVisible ? "" : " is-off"}`;
+      visibility.innerHTML = [
+        '<svg viewBox="0 0 24 24" aria-hidden="true">',
+        '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"></path>',
+        '<circle cx="12" cy="12" r="3"></circle>',
+        '</svg>',
+      ].join("");
+      visibility.setAttribute("aria-pressed", String(isVisible));
+      visibility.setAttribute("aria-label", isVisible ? t.hideLayer(name) : t.showLayer(name));
+      visibility.addEventListener("click", () => {
+        if (hiddenIds.has(id)) hiddenIds.delete(id);
+        else hiddenIds.add(id);
+        renderLayerList();
+      });
+
+      const solo = document.createElement("button");
+      const isSolo = soloId === id;
+      solo.type = "button";
+      solo.className = `layer-tool layer-solo-toggle${isSolo ? " is-active" : ""}`;
+      solo.textContent = isSolo ? "★" : "☆";
+      solo.setAttribute("aria-pressed", String(isSolo));
+      solo.setAttribute("aria-label", isSolo ? t.unsoloLayer(name) : t.soloLayer(name));
+      solo.addEventListener("click", () => {
+        soloId = isSolo ? null : id;
+        renderLayerList();
+      });
 
       const up = document.createElement("button");
       up.type = "button";
@@ -518,9 +636,15 @@ async function setupLayerEditor(model, modelJson) {
         });
       });
 
-      row.append(handle, thumbnail, label, up, down);
+      row.append(handle, thumbnail, label, visibility, solo, up, down);
       layerList.appendChild(row);
     });
+    const restoreScroll = () => {
+      const maximumScrollTop = Math.max(0, layerList.scrollHeight - layerList.clientHeight);
+      layerList.scrollTop = Math.min(previousScrollTop, maximumScrollTop);
+    };
+    restoreScroll();
+    requestAnimationFrame(restoreScroll);
   }
 
   resetLayerOrder.addEventListener("click", () => {

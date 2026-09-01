@@ -121,7 +121,11 @@ def avatar_catalog() -> list[dict]:
     viewer_metadata = read_viewer_metadata()
     avatars = [default_avatar(), *read_generated_avatars()]
     return [
-        {**avatar, "viewer": viewer_metadata.get(str(avatar.get("id")), {})}
+        {
+            **avatar,
+            "viewer": viewer_metadata.get(str(avatar.get("id")), {}),
+            "can_regenerate_layers": can_regenerate_avatar_layers(str(avatar.get("id", ""))),
+        }
         for avatar in avatars
     ]
 
@@ -336,6 +340,105 @@ def select_semantic_psd(output_root: Path, source_stem: str) -> Path:
     raise RuntimeError(f"See-through produced ambiguous semantic PSD outputs: {choices}")
 
 
+def generated_avatar_by_id(avatar_id: str) -> dict | None:
+    return next(
+        (avatar for avatar in read_generated_avatars() if str(avatar.get("id")) == avatar_id),
+        None,
+    )
+
+
+def avatar_layer_regeneration_paths(avatar: dict) -> tuple[Path, Path, str]:
+    """Resolve the existing semantic PSD, Live2D output, and model name for a generated avatar."""
+    avatar_id = str(avatar.get("id", ""))
+    if not re.fullmatch(r"gen-[A-Za-z0-9_-]+", avatar_id):
+        raise RuntimeError("Only generated avatars can regenerate their layers.")
+    avatar_root = (GENERATED_ROOT / avatar_id).resolve()
+    if avatar_root.parent != GENERATED_ROOT.resolve():
+        raise RuntimeError("Avatar path is outside the generated-avatar directory.")
+    psd_path = select_semantic_psd(avatar_root / "see-through", "source")
+    model3_path = (PROJECT_ROOT / str(avatar.get("model3", ""))).resolve()
+    if not model3_path.is_file() or model3_path.suffix != ".json":
+        raise RuntimeError("The generated avatar does not have a loadable model3 bundle.")
+    if avatar_root not in model3_path.parents:
+        raise RuntimeError("The generated avatar model is outside its working directory.")
+    suffix = ".model3.json"
+    model_name = model3_path.name[:-len(suffix)] if model3_path.name.endswith(suffix) else model3_path.stem
+    return psd_path, model3_path.parent, model_name
+
+
+def can_regenerate_avatar_layers(avatar_id: str) -> bool:
+    avatar = generated_avatar_by_id(avatar_id)
+    if avatar is None:
+        return False
+    try:
+        avatar_layer_regeneration_paths(avatar)
+    except (OSError, RuntimeError):
+        return False
+    return True
+
+
+def run_layer_regeneration_job(job_id: str) -> None:
+    """Re-import an existing semantic PSD and rebuild its rig; never rerun Gemini/See-through."""
+    with JOBS_LOCK:
+        job = JOBS[job_id].copy()
+    avatar_id = str(job["avatar_id"])
+    try:
+        avatar = generated_avatar_by_id(avatar_id)
+        if avatar is None:
+            raise RuntimeError("Generated avatar not found.")
+        psd_path, live2d_dir, model_name = avatar_layer_regeneration_paths(avatar)
+        update_job(
+            job_id,
+            phase="rigging",
+            message="Reapplying layer separation, inpainting, meshes, and the Live2D rig…",
+        )
+        output = _run_checked(
+            [
+                str(PIPELINE_PYTHON),
+                str(PROJECT_ROOT / "tools" / "rig_avatar.py"),
+                str(psd_path),
+                "--output",
+                str(live2d_dir),
+                "--name",
+                model_name,
+            ],
+            cwd=PROJECT_ROOT,
+        )
+        result_line = next(
+            (line for line in reversed(output.splitlines()) if line.startswith("{")),
+            "{}",
+        )
+        rig_result = json.loads(result_line)
+        model3_path = Path(rig_result.get("model3", ""))
+        if not model3_path.is_file():
+            raise RuntimeError("Layer regeneration did not produce a loadable model3 bundle.")
+        updated_avatar = {
+            **avatar,
+            "qa_passed": bool(rig_result.get("qa_passed")),
+            "cape_inpaint": rig_result.get("cape_inpaint"),
+            "layers_updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        register_avatar(updated_avatar)
+        cape_method = (rig_result.get("cape_inpaint") or {}).get("method")
+        update_job(
+            job_id,
+            phase="complete",
+            message=(
+                "Layers regenerated with See-through LaMa inpainting."
+                if cape_method == "see-through-lama"
+                else "Layers regenerated from the existing semantic PSD."
+            ),
+            avatar=updated_avatar,
+        )
+    except Exception as exc:
+        update_job(
+            job_id,
+            phase="failed",
+            message="Layer regeneration stopped.",
+            error=str(exc),
+        )
+
+
 def run_avatar_job(job_id: str) -> None:
     with JOBS_LOCK:
         job = JOBS[job_id].copy()
@@ -417,6 +520,7 @@ def run_avatar_job(job_id: str) -> None:
             "gemini_model": gemini_model,
             "see_through_profile": profile,
             "qa_passed": bool(rig_result.get("qa_passed")),
+            "cape_inpaint": rig_result.get("cape_inpaint"),
         }
         register_avatar(avatar)
         update_job(
@@ -432,12 +536,18 @@ def run_avatar_job(job_id: str) -> None:
 class AppHandler(SimpleHTTPRequestHandler):
     server_version = "Live2DLocal/1.0"
 
+    def end_headers(self) -> None:
+        # Generated model3/moc3/textures are rebuilt in place. Browser freshness caching can keep an
+        # earlier moc alive after the JSON and CDI have changed, making new layers look missing.
+        # This is a local development server, so every asset should reflect disk state immediately.
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     def send_json(self, payload: dict, status: int = 200) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
 
@@ -460,6 +570,32 @@ class AppHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urllib_parse.urlsplit(self.path).path
+        regenerate_match = re.fullmatch(
+            r"/api/avatars/([A-Za-z0-9_-]+)/regenerate-layers",
+            path,
+        )
+        if regenerate_match:
+            avatar_id = regenerate_match.group(1)
+            if not can_regenerate_avatar_layers(avatar_id):
+                self.send_json(
+                    {"error": "This avatar has no reusable semantic PSD layers."},
+                    status=409,
+                )
+                return
+            job_id = f"layers-{int(time.time())}-{uuid.uuid4().hex[:6]}"
+            now = datetime.now(timezone.utc).isoformat()
+            with JOBS_LOCK:
+                JOBS[job_id] = {
+                    "id": job_id,
+                    "avatar_id": avatar_id,
+                    "phase": "queued",
+                    "message": "Layer regeneration queued…",
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            EXECUTOR.submit(run_layer_regeneration_job, job_id)
+            self.send_json({"job_id": job_id, "phase": "queued"}, status=202)
+            return
         if path != "/api/avatars/generate":
             self.send_json({"error": "Not found."}, status=404)
             return
