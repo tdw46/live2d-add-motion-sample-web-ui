@@ -54,7 +54,8 @@ python3 tools/setup_model.py <model zip or folder>   # place model + generate mo
 python3 tools/gen_motions.py        # generate + register motions
 python3 tools/validate_motions.py   # validate (should print "OK")
 
-python3 tools/serve.py              # serve (default port: 17342)
+pnpm run dev                        # serve (default port: 17342)
+# or: python3 tools/serve.py
 # → http://localhost:17342
 ```
 

@@ -54,7 +54,8 @@ python3 tools/setup_model.py <モデルのzipまたはフォルダ>   # 配置 +
 python3 tools/gen_motions.py        # モーション生成 + 登録
 python3 tools/validate_motions.py   # 検証(「OK」が出ること)
 
-python3 tools/serve.py              # サーバー起動 (デフォルトポート: 17342)
+pnpm run dev                        # サーバー起動 (デフォルトポート: 17342)
+# または: python3 tools/serve.py
 # → http://localhost:17342
 ```
 

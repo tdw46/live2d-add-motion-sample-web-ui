@@ -90,18 +90,27 @@ details.group .body { padding: 2px 10px 10px; display: grid; gap: 6px; }
   list-style: none; counter-reset: layer; padding-right: 2px;
 }
 .layer-row {
-  display: grid; grid-template-columns: 20px minmax(0, 1fr) 28px 28px;
-  align-items: center; gap: 5px; min-height: 42px; padding: 5px;
+  display: grid; grid-template-columns: 16px 42px minmax(0, 1fr) 28px 28px;
+  align-items: center; gap: 5px; min-height: 52px; padding: 5px;
   border: 1px solid #444860; border-radius: 8px; background: #2c2f42;
 }
 .layer-row.dragging { opacity: .45; }
 .layer-row.drag-over { border-color: var(--accent); background: #383d59; }
 .layer-handle { color: #7f869f; cursor: grab; text-align: center; user-select: none; }
-.layer-name { min-width: 0; font-size: 11px; color: #d6d9e8; }
-.layer-name small {
-  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: #858ca6; font-size: 9px; margin-top: 2px;
+.layer-thumbnail {
+  display: grid; place-items: center; width: 40px; height: 40px; object-fit: contain;
+  border: 1px solid #4d526c; border-radius: 6px;
+  background-color: #202231;
+  background-image:
+    linear-gradient(45deg, #2c2f41 25%, transparent 25%),
+    linear-gradient(-45deg, #2c2f41 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #2c2f41 75%),
+    linear-gradient(-45deg, transparent 75%, #2c2f41 75%);
+  background-size: 10px 10px;
+  background-position: 0 0, 0 5px, 5px -5px, -5px 0;
 }
+.layer-thumbnail.empty { color: #747b95; font-size: 18px; }
+.layer-name { min-width: 0; font-size: 11px; color: #d6d9e8; }
 button.layer-move { padding: 4px; min-height: 28px; font-size: 12px; }
 .layer-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .layer-actions button { padding: 8px; font-size: 11px; }

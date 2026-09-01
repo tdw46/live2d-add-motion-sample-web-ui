@@ -4,4 +4,4 @@
 	branch = see-through-mps
 [submodule "vendor/image2live2d"]
 	path = vendor/image2live2d
-	url = https://github.com/Wzhang3912/image2live2d.git
+	url = https://github.com/tdw46/image2live2d.git

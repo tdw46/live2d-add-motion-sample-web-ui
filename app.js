@@ -281,10 +281,10 @@ generateForm.addEventListener("submit", async (event) => {
 async function loadDrawableLabels(modelJson) {
   try {
     const modelUrl = new URL(modelJson, document.baseURI);
-    const definition = await fetchJson(modelUrl);
+    const definition = await fetchJson(modelUrl, { cache: "no-store" });
     const displayInfo = definition.FileReferences?.DisplayInfo;
     if (!displayInfo) return new Map();
-    const cdi = await fetchJson(new URL(displayInfo, modelUrl));
+    const cdi = await fetchJson(new URL(displayInfo, modelUrl), { cache: "no-store" });
     return new Map((cdi.Parts || []).map((part) => [part.Id, part.Name || part.Id]));
   } catch {
     return new Map();
@@ -307,6 +307,86 @@ function normalizedLayerOrder(savedOrder, modelOrder) {
     if (!seen.has(id)) normalized.push(id);
   });
   return normalized;
+}
+
+function drawableThumbnail(model, coreModel, drawableId, size = 80) {
+  try {
+    const drawableIndex = coreModel.getDrawableIndex(drawableId);
+    if (drawableIndex < 0) return "";
+    const textureIndex = coreModel.getDrawableTextureIndices(drawableIndex);
+    const texture = model.textures?.[textureIndex];
+    const source = texture?.baseTexture?.resource?.source;
+    const sourceWidth = source?.naturalWidth || source?.videoWidth || source?.width || 0;
+    const sourceHeight = source?.naturalHeight || source?.videoHeight || source?.height || 0;
+    const uvs = coreModel.getDrawableVertexUvs(drawableIndex);
+    const indices = coreModel.getDrawableVertexIndices(drawableIndex);
+    if (!source || !sourceWidth || !sourceHeight || !uvs?.length || !indices?.length) return "";
+
+    // Cubism's fragment shader flips the V coordinate before sampling the
+    // texture. Mirror that conversion for previews drawn by the HTML canvas.
+    const canvasUvs = new Float32Array(uvs.length);
+    const us = [];
+    const vs = [];
+    for (let i = 0; i < uvs.length; i += 2) {
+      const u = uvs[i];
+      const v = 1 - uvs[i + 1];
+      canvasUvs[i] = u;
+      canvasUvs[i + 1] = v;
+      us.push(u);
+      vs.push(v);
+    }
+    const uMin = Math.max(0, Math.min(...us));
+    const uMax = Math.min(1, Math.max(...us));
+    const vMin = Math.max(0, Math.min(...vs));
+    const vMax = Math.min(1, Math.max(...vs));
+    const cropWidth = Math.max(1, (uMax - uMin) * sourceWidth);
+    const cropHeight = Math.max(1, (vMax - vMin) * sourceHeight);
+    const padding = 6;
+    const scale = Math.min((size - padding * 2) / cropWidth, (size - padding * 2) / cropHeight);
+    const drawWidth = cropWidth * scale;
+    const drawHeight = cropHeight * scale;
+    const offsetX = (size - drawWidth) / 2;
+    const offsetY = (size - drawHeight) / 2;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+
+    const point = (vertexIndex) => ({
+      x: offsetX + ((canvasUvs[vertexIndex * 2] - uMin) * sourceWidth * scale),
+      y: offsetY + ((canvasUvs[vertexIndex * 2 + 1] - vMin) * sourceHeight * scale),
+    });
+    for (let i = 0; i < indices.length; i += 3) {
+      const first = point(indices[i]);
+      const second = point(indices[i + 1]);
+      const third = point(indices[i + 2]);
+      context.save();
+      context.beginPath();
+      context.moveTo(first.x, first.y);
+      context.lineTo(second.x, second.y);
+      context.lineTo(third.x, third.y);
+      context.closePath();
+      context.clip();
+      context.drawImage(
+        source,
+        uMin * sourceWidth,
+        vMin * sourceHeight,
+        cropWidth,
+        cropHeight,
+        offsetX,
+        offsetY,
+        drawWidth,
+        drawHeight,
+      );
+      context.restore();
+    }
+    return canvas.toDataURL("image/png");
+  } catch {
+    return "";
+  }
 }
 
 async function setupLayerEditor(model, modelJson) {
@@ -344,6 +424,7 @@ async function setupLayerEditor(model, modelJson) {
   applyLayerOrder();
 
   const labels = await loadDrawableLabels(modelJson);
+  const thumbnails = new Map(drawableIds.map((id) => [id, drawableThumbnail(model, coreModel, id)]));
   layerCount.textContent = drawableIds.length;
   layerEditor.hidden = false;
 
@@ -372,6 +453,7 @@ async function setupLayerEditor(model, modelJson) {
       const row = document.createElement("li");
       row.className = "layer-row";
       row.dataset.drawableId = id;
+      row.title = id;
       row.draggable = true;
 
       const handle = document.createElement("span");
@@ -379,12 +461,19 @@ async function setupLayerEditor(model, modelJson) {
       handle.textContent = "⠿";
       handle.setAttribute("aria-hidden", "true");
 
+      const thumbnail = document.createElement(thumbnails.get(id) ? "img" : "span");
+      thumbnail.className = `layer-thumbnail${thumbnails.get(id) ? "" : " empty"}`;
+      thumbnail.setAttribute("aria-hidden", "true");
+      if (thumbnails.get(id)) {
+        thumbnail.src = thumbnails.get(id);
+        thumbnail.alt = "";
+      } else {
+        thumbnail.textContent = "·";
+      }
+
       const label = document.createElement("span");
       label.className = "layer-name";
       label.append(name);
-      const identifier = document.createElement("small");
-      identifier.textContent = id;
-      label.appendChild(identifier);
 
       const up = document.createElement("button");
       up.type = "button";
@@ -429,7 +518,7 @@ async function setupLayerEditor(model, modelJson) {
         });
       });
 
-      row.append(handle, label, up, down);
+      row.append(handle, thumbnail, label, up, down);
       layerList.appendChild(row);
     });
   }
