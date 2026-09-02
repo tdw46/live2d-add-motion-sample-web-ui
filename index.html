@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Live2D Motion Player</title>
-  <link rel="stylesheet" href="styles.css?v=seethrough-layer-names-1">
+  <link rel="stylesheet" href="styles.css?v=layer-variant-picker-3">
 </head>
 <body>
   <main id="stage" aria-label="Live2D avatar stage">
@@ -33,7 +33,7 @@
         <span id="layerCount" class="count">0</span>
       </summary>
       <div class="body layer-editor-body">
-        <p class="layer-hint" data-i18n="layerHint">Frontmost is at the top. Drag layers or use the arrow buttons.</p>
+        <p class="layer-hint" data-i18n="layerHint">Frontmost is at the top. Drag rows or use the arrows to reorder; drag a control strip sideways if needed.</p>
         <ol id="layerList"></ol>
         <p id="layerSaveStatus" class="layer-save-status" aria-live="polite"></p>
         <div class="layer-actions">
@@ -89,11 +89,69 @@
     </form>
   </dialog>
 
+  <dialog id="layerRegenerateDialog">
+    <form id="layerRegenerateForm">
+      <div class="dialog-heading">
+        <div>
+          <h2 data-i18n="layerGenerateTitle">Regenerate selected layer</h2>
+          <p id="layerRegenerateName" class="selected-layer-name"></p>
+        </div>
+        <button id="closeLayerRegenerate" class="icon-button" type="button" aria-label="Close">×</button>
+      </div>
+
+      <label for="layerInstruction" data-i18n="layerInstructionLabel">What should change?</label>
+      <textarea id="layerInstruction" rows="4" required maxlength="1200" data-i18n-placeholder="layerInstructionPlaceholder" placeholder="Refine the armor into a cleaner segmented sci-fi design while keeping its current silhouette…"></textarea>
+      <p class="prompt-hint" data-i18n="layerInstructionHint">The finalized layer, cropped local character context, and matching layers are supplied as visual references.</p>
+
+      <label class="check-option">
+        <input id="includeRelatedLayers" type="checkbox" checked>
+        <span data-i18n="includeRelatedLayers">Also regenerate matching left/right, front/back, or connected layers</span>
+      </label>
+      <p id="relatedLayersHint" class="prompt-hint"></p>
+
+      <label class="check-option">
+        <input id="preserveLayerColors" type="checkbox" checked>
+        <span data-i18n="preserveLayerColors">Preserve the existing color palette</span>
+      </label>
+
+      <label class="check-option">
+        <input id="useGeneratedLayerMask" type="checkbox" checked>
+        <span data-i18n="useGeneratedLayerMask">Use a new layer mask from the chroma-keyed result</span>
+      </label>
+      <p class="prompt-hint" data-i18n="generatedLayerMaskHint">The keyed foreground becomes the new alpha mask. Turn this off only to reuse the finalized mask exactly.</p>
+
+      <div class="layer-edit-options">
+        <label for="layerChangeAmount" data-i18n="changeAmountLabel">Change amount</label>
+        <select id="layerChangeAmount">
+          <option value="subtle" data-i18n="changeSubtle">Subtle</option>
+          <option value="balanced" selected data-i18n="changeBalanced">Balanced</option>
+          <option value="strong" data-i18n="changeStrong">Strong</option>
+        </select>
+        <label for="attachmentLock" data-i18n="attachmentLockLabel">Attachment lock</label>
+        <select id="attachmentLock">
+          <option value="strict" selected data-i18n="attachmentStrict">Strict</option>
+          <option value="balanced" data-i18n="attachmentBalanced">Balanced</option>
+        </select>
+      </div>
+      <p class="prompt-hint" data-i18n="attachmentHint">Attachment lock preserves the original seam while retaining the regenerated silhouette.</p>
+
+      <div id="layerRegenerateProgress" class="progress-panel" hidden>
+        <div class="progress-track"><span id="layerRegenerateBar"></span></div>
+        <p id="layerRegenerateProgressText">Preparing…</p>
+      </div>
+
+      <div class="dialog-actions">
+        <button id="cancelLayerRegenerate" type="button" class="secondary" data-i18n="cancel">Cancel</button>
+        <button id="submitLayerRegenerate" type="submit" data-i18n="regenerateSelected">Regenerate layer</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js"></script>
   <script src="gaze.js?v=model-aware-4"></script>
   <script src="motion-controls.js?v=smooth-motion-release-5"></script>
-  <script src="app.js?v=smooth-motion-release-5"></script>
+  <script src="app.js?v=instant-layer-textures-2"></script>
 </body>
 </html>

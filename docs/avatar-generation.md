@@ -12,6 +12,89 @@ drawables front-to-back. Drag rows or use the arrow controls to preview a new
 stack immediately, then save it. Per-avatar order is stored in the ignored
 `local-assets/avatar-viewer-metadata.json` and reapplied after reload.
 
+Each generated-avatar row also has a **✦ Regenerate** control. It edits the
+finalized full-canvas layer consumed by the rig rather than rerunning
+See-through. Matching left/right, front/back, and connected upper/lower layers
+are included by default and can be opted out. Palette preservation, change
+amount, and strict/balanced attachment locking are exposed per edit.
+Generic See-through parts without side tokens (for example, two layers both
+named `accessory`) are paired from mirrored canvas geometry. This keeps the
+left/right option available for arms while excluding centered accessories.
+
+## Targeted layer regeneration
+
+The local server chooses an RGB chroma color by maximizing its minimum color
+distance from every visible color across the selected input layers. It places
+the finalized RGBA layer over that solid color before sending it to Gemini,
+along with a cropped local character context and matching layers as references.
+Image roles are explicitly labeled, and Gemini-facing instructions require one
+uniformly keyed background and intentionally avoid language that asks the model
+for alpha output.
+
+After generation, the bridge flood-fills chroma shades connected to the image
+border and removes edge spill. **Use a new layer mask from the chroma-keyed
+result** is enabled by default. The recovered alpha stays in Gemini's original
+full-canvas coordinates without being resized into the old layer bounds, so a
+new hairstyle, sleeve, or garment can genuinely extend or contract. A narrow
+strip of finalized pixels is blended at the proximal attachment seam; strict
+lock preserves 6% (up to 16 pixels), while balanced lock preserves 3%.
+
+Users can turn the option off for a recolor or surface-detail edit that must
+retain the finalized outline exactly. In that mode, generated RGB is fitted
+into the original occupied bounds, missing generated pixels fall back to the
+finalized artwork, and the original alpha mask is restored byte-for-byte. A
+near-full-canvas foreground is rejected as an accidental character/scene
+response; when a valid paired layer exists, the bridge mirrors it into the
+rejected counterpart and keeps that counterpart's original seam.
+
+Accepted replacements live under the generated avatar's ignored
+`layer-regeneration/overrides/` directory. Timestamped edit metadata and prior
+accepted images are kept under `layer-regeneration/history/`. A later full
+layer rebuild reapplies accepted overrides after PSD extraction and inpainting.
+Every generated layer exposes right-aligned undo and redo controls beside its
+name. Both remain visible and become disabled when their corresponding history
+stack is empty. Undo restores the preceding accepted generation, or removes the
+override when the preceding state was the finalized baseline; redo reapplies the
+undone generation. Matching layers are restored together by default, and a new
+generation clears the applicable redo history. The affected rows and status line
+show spinners throughout the candidate-rig rebuild. See-through display names
+such as `Topwear`, `Cape`, and side-specific footwear survive override rebuilds
+instead of falling back to generic semantic roles. Row controls sit
+in a horizontally scrollable strip that also supports thresholded drag-to-scroll,
+so an ordinary click and release still activates its button. **Reset regenerated
+art** remains available in the placement panel to jump directly to baseline.
+Both operations rebuild and validate a candidate rig before replacing the
+active model. Whole-pixel X/Y placement lives in
+`layer-regeneration/metadata.json`; live sliders appear below each layer in the
+Layer Order UI, and the saved value is applied non-destructively during every
+rebuild and can also be reset.
+
+Layers with accepted Gemini edits show a chevron on their thumbnail. Clicking
+the thumbnail expands an inline visual picker containing the finalized original
+and every accepted generated result, including the instruction that produced it.
+The active result is marked and disabled; selecting another variant runs the
+same transactional candidate-rig rebuild used by undo and redo. Older avatars
+derive variant images from their existing history, while new generations archive
+their accepted images directly in the matching history entry.
+The picker is a browser top-layer popover so it draws above every sortable row
+instead of being clipped by the scrolling layer list. Matching front/back,
+left/right, and connected layers switch to the same accepted generation by
+default. A checked option at the top of the picker lets the user opt out and
+change only the selected layer.
+
+Both newly accepted Gemini results and later variant switching compare the PNG
+alpha planes using a cached decoder. Each rig build unions the finalized original,
+current override, and archived accepted variants into per-drawable mesh guides,
+then records the emitted triangle coverage. When every selected result fits that
+coverage and no placement offset is baked, the server archives the generation,
+updates the persisted override and existing Live2D texture file without invoking
+the rigging bridge, and returns the new variant ID. The viewer then replaces the
+corresponding Pixi/WebGL texture slots in place. A genuinely new silhouette outside
+the recorded coverage takes the transactional rebuild path once; that rebuild
+expands the guide so the accepted shape becomes texture-only on later switches.
+`pnpm run dev` prefers the Pillow-enabled avatar virtual environment for fast mask
+queries and falls back to the stdlib PNG decoder when that environment is absent.
+
 ## Data flow
 
 ```text

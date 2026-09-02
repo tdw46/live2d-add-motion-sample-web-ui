@@ -18,7 +18,24 @@ const resetLayerOrder = document.getElementById("resetLayerOrder");
 const saveLayerOrder = document.getElementById("saveLayerOrder");
 const regenerateLayers = document.getElementById("regenerateLayers");
 const regenerateLayersStatus = document.getElementById("regenerateLayersStatus");
+const layerRegenerateDialog = document.getElementById("layerRegenerateDialog");
+const layerRegenerateForm = document.getElementById("layerRegenerateForm");
+const layerRegenerateName = document.getElementById("layerRegenerateName");
+const layerInstruction = document.getElementById("layerInstruction");
+const includeRelatedLayers = document.getElementById("includeRelatedLayers");
+const relatedLayersHint = document.getElementById("relatedLayersHint");
+const preserveLayerColors = document.getElementById("preserveLayerColors");
+const useGeneratedLayerMask = document.getElementById("useGeneratedLayerMask");
+const layerChangeAmount = document.getElementById("layerChangeAmount");
+const attachmentLock = document.getElementById("attachmentLock");
+const layerRegenerateProgress = document.getElementById("layerRegenerateProgress");
+const layerRegenerateBar = document.getElementById("layerRegenerateBar");
+const layerRegenerateProgressText = document.getElementById("layerRegenerateProgressText");
+const submitLayerRegenerate = document.getElementById("submitLayerRegenerate");
+const cancelLayerRegenerate = document.getElementById("cancelLayerRegenerate");
+const closeLayerRegenerate = document.getElementById("closeLayerRegenerate");
 const params = new URLSearchParams(location.search);
+let applyGeneratedLayerTextures = null;
 
 const localeOverride = params.get("lang");
 const browserLocale = navigator.languages?.[0] || navigator.language || "en";
@@ -44,7 +61,7 @@ const messages = {
     submitting: "Starting the local generation pipeline…",
     jobQueued: "Queued behind any avatar currently being generated…",
     layerOrder: "Layer order",
-    layerHint: "Frontmost is at the top. Drag layers or use the arrow buttons.",
+    layerHint: "Frontmost is at the top. Drag rows or use the arrows to reorder; drag a control strip sideways if needed.",
     restoreLayerOrder: "Restore model order",
     saveLayerOrder: "Save order",
     moveLayerUp: (name) => `Move ${name} toward the front`,
@@ -58,6 +75,7 @@ const messages = {
     layerLoaded: "Saved layer order applied",
     layerRestored: "Model order restored — save to keep it",
     layerSaveFailed: (message) => `Could not save layer order: ${message}`,
+    layerControls: "controls",
     newActions: "Newly added motions",
     drag: "Drag",
     dragHint: "move the avatar",
@@ -81,6 +99,50 @@ const messages = {
     regenerateLayersQueued: "Layer regeneration queued…",
     regenerateLayersDone: "Layers regenerated — reloading the avatar…",
     regenerateLayersFailed: (message) => `Could not regenerate layers: ${message}`,
+    layerGenerateTitle: "Regenerate selected layer",
+    regenerateLayer: (name) => `Regenerate ${name}`,
+    layerInstructionLabel: "What should change?",
+    layerInstructionPlaceholder: "Refine the armor into a cleaner segmented sci-fi design while keeping its current silhouette…",
+    layerInstructionHint: "The finalized layer, cropped local character context, and matching layers are supplied as visual references.",
+    includeRelatedLayers: "Also regenerate matching left/right, front/back, or connected layers",
+    relatedLayers: (names) => `Included by default: ${names}`,
+    noRelatedLayers: "No matching layer was detected for this selection.",
+    preserveLayerColors: "Preserve the existing color palette",
+    useGeneratedLayerMask: "Use a new layer mask from the chroma-keyed result",
+    generatedLayerMaskHint: "The keyed foreground becomes the new alpha mask. Turn this off only to reuse the finalized mask exactly.",
+    undoLayerGeneration: (name) => `Undo the last generation for ${name}`,
+    undoGenerationStarting: "Undoing the last generation…",
+    redoLayerGeneration: (name) => `Redo the last undone generation for ${name}`,
+    redoGenerationStarting: "Redoing the last undone generation…",
+    showLayerVariants: (name) => `Show generated variants for ${name}`,
+    originalVariant: "Original",
+    generatedVariant: (index) => `Generated ${index}`,
+    activeVariant: "Selected",
+    selectLayerVariant: (variant, name) => `Use ${variant} for ${name}`,
+    includeRelatedVariants: (names) => `Also switch matching layers: ${names}`,
+    variantSelecting: "Switching layer variant…",
+    variantSwitchedInstantly: "Layer textures switched instantly — no rig rebuild needed",
+    generatedTextureApplied: "Generated layer textures applied instantly — no rig rebuild needed",
+    changeAmountLabel: "Change amount",
+    changeSubtle: "Subtle",
+    changeBalanced: "Balanced",
+    changeStrong: "Strong",
+    attachmentLockLabel: "Attachment lock",
+    attachmentStrict: "Strict",
+    attachmentBalanced: "Balanced",
+    attachmentHint: "Attachment lock preserves the original seam while retaining the regenerated silhouette.",
+    adjustLayerPlacement: (name) => `Adjust ${name} placement`,
+    layerOffsetX: "X",
+    layerOffsetY: "Y",
+    resetLayerOffset: "Center",
+    revertLayerEdit: "Reset regenerated art",
+    layerPlacementSaving: "Saving…",
+    layerPlacementSaved: "Saved",
+    layerRevertStarting: "Restoring the finalized layer art…",
+    layerActionFailed: (message) => `Could not update the selected layer: ${message}`,
+    regenerateSelected: "Regenerate layer",
+    targetedLayerStarting: "Preparing finalized layers for Gemini…",
+    targetedLayerFailed: (message) => `Could not regenerate the selected layer: ${message}`,
   },
   ja: {
     title: (name) => `Live2D モーション追加サンプル - ${name}`,
@@ -100,7 +162,7 @@ const messages = {
     submitting: "ローカル生成パイプラインを開始しています…",
     jobQueued: "先に実行中のアバター生成が終わるまで待機しています…",
     layerOrder: "レイヤー順序",
-    layerHint: "一番上が最前面です。ドラッグまたは矢印ボタンで並べ替えます。",
+    layerHint: "一番上が最前面です。行のドラッグまたは矢印で並べ替え、必要なら操作欄を横にドラッグできます。",
     restoreLayerOrder: "モデルの順序に戻す",
     saveLayerOrder: "順序を保存",
     moveLayerUp: (name) => `${name}を前面へ移動`,
@@ -114,6 +176,7 @@ const messages = {
     layerLoaded: "保存済みのレイヤー順序を適用しました",
     layerRestored: "モデル順序に戻しました。保存すると維持されます。",
     layerSaveFailed: (message) => `レイヤー順序を保存できませんでした: ${message}`,
+    layerControls: "操作",
     newActions: "今回追加したモーション",
     drag: "ドラッグ",
     dragHint: "アバターを移動",
@@ -137,6 +200,50 @@ const messages = {
     regenerateLayersQueued: "レイヤー再生成を待機しています…",
     regenerateLayersDone: "レイヤーを再生成しました。アバターを再読み込みします…",
     regenerateLayersFailed: (message) => `レイヤーを再生成できませんでした: ${message}`,
+    layerGenerateTitle: "選択したレイヤーを再生成",
+    regenerateLayer: (name) => `${name}を再生成`,
+    layerInstructionLabel: "どのように変更しますか？",
+    layerInstructionPlaceholder: "現在のシルエットを保ちながら、装甲をすっきりした分割型SFデザインに整える…",
+    layerInstructionHint: "完成済みレイヤー、キャラクター周辺の切り抜き、対応レイヤーを参照画像として使用します。",
+    includeRelatedLayers: "左右・前後・接続された対応レイヤーも一緒に再生成",
+    relatedLayers: (names) => `初期設定で含む: ${names}`,
+    noRelatedLayers: "このレイヤーに対応するレイヤーは見つかりませんでした。",
+    preserveLayerColors: "現在のカラーパレットを維持",
+    useGeneratedLayerMask: "クロマキー結果から新しいレイヤーマスクを作成",
+    generatedLayerMaskHint: "キー色以外の領域を新しいアルファマスクにします。完成時のマスクをそのまま使う場合だけオフにしてください。",
+    undoLayerGeneration: (name) => `${name}の最後の生成を取り消す`,
+    undoGenerationStarting: "最後の生成を取り消しています…",
+    redoLayerGeneration: (name) => `${name}の取り消した生成をやり直す`,
+    redoGenerationStarting: "取り消した生成をやり直しています…",
+    showLayerVariants: (name) => `${name}の生成バリエーションを表示`,
+    originalVariant: "オリジナル",
+    generatedVariant: (index) => `生成 ${index}`,
+    activeVariant: "選択中",
+    selectLayerVariant: (variant, name) => `${name}に${variant}を使用`,
+    includeRelatedVariants: (names) => `対応レイヤーも一緒に切り替える: ${names}`,
+    variantSelecting: "レイヤーバリエーションを切り替えています…",
+    variantSwitchedInstantly: "テクスチャを即時切り替えました — リグの再構築は不要でした",
+    generatedTextureApplied: "生成したレイヤーテクスチャを即時反映しました — リグの再構築は不要でした",
+    changeAmountLabel: "変更量",
+    changeSubtle: "控えめ",
+    changeBalanced: "標準",
+    changeStrong: "大きく",
+    attachmentLockLabel: "接続点ロック",
+    attachmentStrict: "厳密",
+    attachmentBalanced: "標準",
+    attachmentHint: "再生成したシルエットを保ちながら、元の接続境界を固定します。",
+    adjustLayerPlacement: (name) => `${name}の配置を調整`,
+    layerOffsetX: "X",
+    layerOffsetY: "Y",
+    resetLayerOffset: "中央に戻す",
+    revertLayerEdit: "再生成前の画像に戻す",
+    layerPlacementSaving: "保存中…",
+    layerPlacementSaved: "保存済み",
+    layerRevertStarting: "完成済みの元レイヤーに戻しています…",
+    layerActionFailed: (message) => `選択したレイヤーを更新できませんでした: ${message}`,
+    regenerateSelected: "レイヤーを再生成",
+    targetedLayerStarting: "完成済みレイヤーをGemini用に準備しています…",
+    targetedLayerFailed: (message) => `選択したレイヤーを再生成できませんでした: ${message}`,
   },
 };
 const t = messages[locale];
@@ -156,6 +263,8 @@ let avatarCatalog = [];
 let currentAvatar = null;
 let activeJobId = null;
 let activeLayerJobId = null;
+let activeLayerEditJobId = null;
+let selectedLayerEdit = null;
 
 function updateAvatarIdentity(avatar) {
   const name = avatar?.name || "Live2D";
@@ -250,6 +359,117 @@ regenerateLayers.addEventListener("click", async () => {
     regenerateLayers.disabled = false;
     regenerateLayersStatus.textContent = t.regenerateLayersFailed(error.message);
     regenerateLayersStatus.className = "avatar-job-status error";
+  }
+});
+
+function setLayerEditBusy(busy) {
+  submitLayerRegenerate.disabled = busy;
+  cancelLayerRegenerate.disabled = busy;
+  closeLayerRegenerate.disabled = busy;
+}
+
+function openLayerRegenerator(layer) {
+  selectedLayerEdit = layer;
+  layerRegenerateName.textContent = layer.name;
+  layerInstruction.value = "";
+  preserveLayerColors.checked = true;
+  useGeneratedLayerMask.checked = true;
+  layerChangeAmount.value = "balanced";
+  attachmentLock.value = "strict";
+  includeRelatedLayers.checked = true;
+  includeRelatedLayers.disabled = layer.related.length === 0;
+  relatedLayersHint.textContent = layer.related.length
+    ? t.relatedLayers(layer.related.map((item) => item.name).join(", "))
+    : t.noRelatedLayers;
+  layerRegenerateProgress.hidden = true;
+  layerRegenerateProgressText.classList.remove("error");
+  layerRegenerateBar.style.width = "5%";
+  setLayerEditBusy(false);
+  layerRegenerateDialog.showModal();
+  setTimeout(() => layerInstruction.focus(), 0);
+}
+
+function closeLayerRegenerator() {
+  if (activeLayerEditJobId) return;
+  layerRegenerateDialog.close();
+  selectedLayerEdit = null;
+}
+
+cancelLayerRegenerate.addEventListener("click", closeLayerRegenerator);
+closeLayerRegenerate.addEventListener("click", closeLayerRegenerator);
+layerRegenerateDialog.addEventListener("cancel", (event) => {
+  if (activeLayerEditJobId) event.preventDefault();
+});
+
+function layerEditProgress(phase) {
+  return ({ queued: 5, gemini: 42, textures: 92, rigging: 86, complete: 100, failed: 100 })[phase] || 10;
+}
+
+async function pollLayerEdit(jobId) {
+  while (activeLayerEditJobId === jobId) {
+    const job = await fetchJson(`/api/avatar-jobs/${encodeURIComponent(jobId)}`);
+    layerRegenerateProgressText.textContent = job.message || t.targetedLayerStarting;
+    layerRegenerateBar.style.width = `${layerEditProgress(job.phase)}%`;
+    if (job.phase === "complete") {
+      if (job.texture_only) {
+        try {
+          if (!applyGeneratedLayerTextures) throw new Error("Layer texture editor is unavailable.");
+          await applyGeneratedLayerTextures(job);
+          activeLayerEditJobId = null;
+          setLayerEditBusy(false);
+          layerRegenerateDialog.close();
+          selectedLayerEdit = null;
+          return;
+        } catch {
+          // The generated textures are already persisted. Reload only if this browser could not
+          // bind them into the current WebGL context.
+        }
+      }
+      activeLayerEditJobId = null;
+      const next = new URL(location.href);
+      next.searchParams.set("layers", Date.now().toString());
+      location.assign(next);
+      return;
+    }
+    if (job.phase === "failed") throw new Error(job.error || "Unknown error");
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+}
+
+layerRegenerateForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!selectedLayerEdit || activeLayerEditJobId) return;
+  const instruction = layerInstruction.value.trim();
+  if (!instruction) return;
+  layerRegenerateProgress.hidden = false;
+  layerRegenerateProgressText.classList.remove("error");
+  layerRegenerateProgressText.textContent = t.targetedLayerStarting;
+  layerRegenerateBar.style.width = "5%";
+  setLayerEditBusy(true);
+  try {
+    const payload = await fetchJson(
+      `/api/avatars/${encodeURIComponent(currentAvatar.id)}/regenerate-layer`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          layer_id: selectedLayerEdit.id,
+          instruction,
+          include_related: includeRelatedLayers.checked,
+          preserve_colors: preserveLayerColors.checked,
+          use_generated_mask: useGeneratedLayerMask.checked,
+          change_amount: layerChangeAmount.value,
+          attachment_lock: attachmentLock.value,
+        }),
+      },
+    );
+    activeLayerEditJobId = payload.job_id;
+    await pollLayerEdit(activeLayerEditJobId);
+  } catch (error) {
+    activeLayerEditJobId = null;
+    layerRegenerateProgressText.textContent = t.targetedLayerFailed(error.message);
+    layerRegenerateProgressText.classList.add("error");
+    setLayerEditBusy(false);
   }
 });
 
@@ -514,7 +734,368 @@ async function setupLayerEditor(model, modelJson) {
   applyLayerOrder();
 
   const labels = await loadDrawableLabels(modelJson);
+  let regenerationLayers = new Map();
+  if (currentAvatar.can_regenerate_layers) {
+    try {
+      const payload = await fetchJson(
+        `/api/avatars/${encodeURIComponent(currentAvatar.id)}/layers`,
+      );
+      regenerationLayers = new Map((payload.layers || []).map((layer) => [layer.id, layer]));
+    } catch {
+      regenerationLayers = new Map();
+    }
+  }
+  const expandedPlacementIds = new Set();
+  const placementStatus = new Map();
+  const initialBakedOffsets = new Map();
+  const previewOffsets = new Map();
+  const placementTimers = new Map();
+  const placementQueue = new Map();
+  let placementWorkerActive = false;
+  let rowActionActive = false;
+  let historyPendingIds = new Set();
+  let historyPendingAction = null;
+  const expandedVariantIds = new Set();
+  const variantTextureCache = new Map();
+  let activeVariantMenu = null;
+  let activeVariantAnchor = null;
+  for (const [id, layer] of regenerationLayers) {
+    const offset = {
+      x: Number(layer.offset?.x) || 0,
+      y: Number(layer.offset?.y) || 0,
+    };
+    initialBakedOffsets.set(id, { ...offset });
+    previewOffsets.set(id, { ...offset });
+  }
+
+  function applyLiveLayerOffsets() {
+    if (!coreModel.getDrawableVertexPositions) return;
+    for (const [id, preview] of previewOffsets) {
+      const layer = regenerationLayers.get(id);
+      const canvas = layer?.canvas;
+      const baked = initialBakedOffsets.get(id) || { x: 0, y: 0 };
+      if (!Array.isArray(canvas) || canvas.length !== 2 || !canvas[0] || !canvas[1]) continue;
+      const deltaX = (preview.x - baked.x) * 2 / canvas[0];
+      const deltaY = -(preview.y - baked.y) * 2 / canvas[1];
+      if (!deltaX && !deltaY) continue;
+      const drawableIndex = coreModel.getDrawableIndex(id);
+      if (drawableIndex < 0) continue;
+      const positions = coreModel.getDrawableVertexPositions(drawableIndex);
+      for (let vertex = 0; vertex < positions.length; vertex += 2) {
+        positions[vertex] += deltaX;
+        positions[vertex + 1] += deltaY;
+      }
+    }
+  }
+
+  if (typeof coreModel.update === "function") {
+    const originalCoreUpdate = coreModel.update.bind(coreModel);
+    coreModel.update = (...args) => {
+      const result = originalCoreUpdate(...args);
+      applyLiveLayerOffsets();
+      return result;
+    };
+  }
+
+  function setPlacementStatus(id, message, className = "") {
+    placementStatus.set(id, { message, className });
+    const row = Array.from(layerList.querySelectorAll(".layer-row"))
+      .find((candidate) => candidate.dataset.drawableId === id);
+    const status = row?.querySelector(".layer-offset-status");
+    if (status) {
+      status.textContent = message;
+      status.className = `layer-offset-status ${className}`.trim();
+    }
+  }
+
+  async function waitForLayerAction(jobId, onUpdate = null) {
+    while (true) {
+      const job = await fetchJson(`/api/avatar-jobs/${encodeURIComponent(jobId)}`);
+      onUpdate?.(job);
+      if (job.phase === "complete") return job;
+      if (job.phase === "failed") throw new Error(job.error || "Unknown error");
+      await new Promise((resolve) => setTimeout(resolve, 750));
+    }
+  }
+
+  async function processPlacementQueue() {
+    if (placementWorkerActive) return;
+    placementWorkerActive = true;
+    while (placementQueue.size) {
+      const [id, offset] = placementQueue.entries().next().value;
+      placementQueue.delete(id);
+      setPlacementStatus(id, t.layerPlacementSaving);
+      try {
+        const payload = await fetchJson(
+          `/api/avatars/${encodeURIComponent(currentAvatar.id)}/offset-layer`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              layer_id: id,
+              offset_x: offset.x,
+              offset_y: offset.y,
+              include_related: false,
+            }),
+          },
+        );
+        await waitForLayerAction(payload.job_id);
+        const layer = regenerationLayers.get(id);
+        if (layer) {
+          layer.offset = { ...offset };
+          layer.can_revert = layer.overridden || offset.x !== 0 || offset.y !== 0;
+          const row = Array.from(layerList.querySelectorAll(".layer-row"))
+            .find((candidate) => candidate.dataset.drawableId === id);
+          const restore = row?.querySelector(".restore-art");
+          if (restore) restore.disabled = !layer.can_revert;
+        }
+        setPlacementStatus(id, t.layerPlacementSaved, "saved");
+      } catch (error) {
+        setPlacementStatus(id, t.layerActionFailed(error.message), "error");
+      }
+    }
+    placementWorkerActive = false;
+  }
+
+  function queuePlacementSave(id, delay = 0) {
+    clearTimeout(placementTimers.get(id));
+    placementTimers.set(id, setTimeout(() => {
+      placementTimers.delete(id);
+      placementQueue.set(id, { ...previewOffsets.get(id) });
+      processPlacementQueue();
+    }, delay));
+  }
+
+  async function restoreLayerArt(id) {
+    if (rowActionActive || activeLayerEditJobId) return;
+    rowActionActive = true;
+    setPlacementStatus(id, t.layerRevertStarting);
+    try {
+      const payload = await fetchJson(
+        `/api/avatars/${encodeURIComponent(currentAvatar.id)}/revert-layer`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ layer_id: id, include_related: false }),
+        },
+      );
+      await waitForLayerAction(payload.job_id);
+      const next = new URL(location.href);
+      next.searchParams.set("layers", Date.now().toString());
+      location.assign(next);
+    } catch (error) {
+      rowActionActive = false;
+      setPlacementStatus(id, t.layerActionFailed(error.message), "error");
+    }
+  }
+
+  async function runLayerHistoryAction(id, action) {
+    if (rowActionActive || activeLayerEditJobId || placementWorkerActive) return;
+    rowActionActive = true;
+    const isRedo = action === "redo";
+    const capability = isRedo ? "can_redo_generation" : "can_undo_generation";
+    const relatedIds = regenerationLayers.get(id)?.related || [];
+    historyPendingIds = new Set([
+      id,
+      ...relatedIds.filter((relatedId) => regenerationLayers.get(relatedId)?.[capability]),
+    ]);
+    historyPendingAction = action;
+    renderLayerList();
+    const startingMessage = isRedo ? t.redoGenerationStarting : t.undoGenerationStarting;
+    layerSaveStatus.textContent = startingMessage;
+    layerSaveStatus.className = "layer-save-status is-busy";
+    try {
+      const payload = await fetchJson(
+        `/api/avatars/${encodeURIComponent(currentAvatar.id)}/${action}-generation`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ layer_id: id, include_related: true }),
+        },
+      );
+      await waitForLayerAction(payload.job_id, (job) => {
+        layerSaveStatus.textContent = job.message || startingMessage;
+      });
+      const next = new URL(location.href);
+      next.searchParams.set("layers", Date.now().toString());
+      location.assign(next);
+    } catch (error) {
+      rowActionActive = false;
+      historyPendingIds.clear();
+      historyPendingAction = null;
+      renderLayerList();
+      layerSaveStatus.textContent = t.layerActionFailed(error.message);
+      layerSaveStatus.className = "layer-save-status error";
+    }
+  }
+
+  const undoLayerGeneration = (id) => runLayerHistoryAction(id, "undo");
+  const redoLayerGeneration = (id) => runLayerHistoryAction(id, "redo");
+
+  async function loadVariantTexture(url) {
+    if (variantTextureCache.has(url)) return variantTextureCache.get(url);
+    const texture = PIXI.Texture.from(url);
+    const pending = texture.baseTexture.valid
+      ? Promise.resolve(texture)
+      : new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error("Texture loading timed out.")), 10000);
+        texture.baseTexture.once("loaded", () => {
+          clearTimeout(timeout);
+          resolve(texture);
+        });
+        texture.baseTexture.once("error", (error) => {
+          clearTimeout(timeout);
+          reject(error instanceof Error ? error : new Error("Texture loading failed."));
+        });
+      });
+    variantTextureCache.set(url, pending);
+    try {
+      return await pending;
+    } catch (error) {
+      variantTextureCache.delete(url);
+      throw error;
+    }
+  }
+
+  async function applyRuntimeVariantTextures(layerIds, variantId) {
+    const refreshed = await fetchJson(
+      `/api/avatars/${encodeURIComponent(currentAvatar.id)}/layers`,
+    );
+    regenerationLayers = new Map((refreshed.layers || []).map((layer) => [layer.id, layer]));
+    const replacements = [];
+    for (const layerId of layerIds) {
+      const variant = regenerationLayers.get(layerId)?.variants?.find(
+        (item) => item.id === variantId,
+      );
+      if (!variant?.thumbnail_url) throw new Error(`Generated variant missing for ${layerId}.`);
+      const drawableIndex = coreModel.getDrawableIndex(layerId);
+      if (drawableIndex < 0) throw new Error(`Live2D drawable missing for ${layerId}.`);
+      const textureIndex = coreModel.getDrawableTextureIndices(drawableIndex);
+      const texture = await loadVariantTexture(variant.thumbnail_url);
+      replacements.push({ layerId, textureIndex, texture });
+    }
+    for (const replacement of replacements) {
+      model.textures[replacement.textureIndex] = replacement.texture;
+    }
+    replacements.forEach(({ layerId }) => {
+      thumbnails.set(layerId, drawableThumbnail(model, coreModel, layerId));
+    });
+  }
+
+  async function selectLayerVariant(id, variant, includeRelated = true) {
+    if (rowActionActive || activeLayerEditJobId || placementWorkerActive || variant.active) return;
+    rowActionActive = true;
+    expandedVariantIds.clear();
+    const matchingRelated = includeRelated
+      ? (regenerationLayers.get(id)?.related || []).filter((relatedId) =>
+        regenerationLayers.get(relatedId)?.variants?.some((item) => item.id === variant.id))
+      : [];
+    historyPendingIds = new Set([id, ...matchingRelated]);
+    historyPendingAction = "variant";
+    renderLayerList();
+    layerSaveStatus.textContent = t.variantSelecting;
+    layerSaveStatus.className = "layer-save-status is-busy";
+    try {
+      const payload = await fetchJson(
+        `/api/avatars/${encodeURIComponent(currentAvatar.id)}/select-variant`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            layer_id: id,
+            variant_id: variant.id,
+            include_related: includeRelated,
+          }),
+        },
+      );
+      const completed = await waitForLayerAction(payload.job_id, (job) => {
+        layerSaveStatus.textContent = job.message || t.variantSelecting;
+      });
+      if (completed.texture_only) {
+        try {
+          await applyRuntimeVariantTextures(completed.layer_ids || [id], variant.id);
+          rowActionActive = false;
+          historyPendingIds.clear();
+          historyPendingAction = null;
+          renderLayerList();
+          layerSaveStatus.textContent = t.variantSwitchedInstantly;
+          layerSaveStatus.className = "layer-save-status saved";
+          return;
+        } catch {
+          // The server has already persisted the texture. A quick reload is the reliable fallback if
+          // this browser could not upload/bind the replacement texture in the current WebGL context.
+        }
+      }
+      const next = new URL(location.href);
+      next.searchParams.set("layers", Date.now().toString());
+      location.assign(next);
+    } catch (error) {
+      rowActionActive = false;
+      historyPendingIds.clear();
+      historyPendingAction = null;
+      renderLayerList();
+      layerSaveStatus.textContent = t.layerActionFailed(error.message);
+      layerSaveStatus.className = "layer-save-status error";
+    }
+  }
+
+  function enableHorizontalDragScroll(container) {
+    let pointerId = null;
+    let startX = 0;
+    let startScrollLeft = 0;
+    let dragged = false;
+    let suppressClick = false;
+
+    container.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      pointerId = event.pointerId;
+      startX = event.clientX;
+      startScrollLeft = container.scrollLeft;
+      dragged = false;
+      suppressClick = false;
+    });
+    container.addEventListener("pointermove", (event) => {
+      if (event.pointerId !== pointerId) return;
+      const distance = event.clientX - startX;
+      if (!dragged && Math.abs(distance) < 6) return;
+      if (!dragged) {
+        dragged = true;
+        container.classList.add("drag-scrolling");
+        container.setPointerCapture?.(event.pointerId);
+      }
+      container.scrollLeft = startScrollLeft - distance;
+      event.preventDefault();
+    });
+    const finishDrag = (event) => {
+      if (event.pointerId !== pointerId) return;
+      if (dragged) {
+        suppressClick = true;
+        container.releasePointerCapture?.(event.pointerId);
+        setTimeout(() => { suppressClick = false; }, 0);
+      }
+      pointerId = null;
+      dragged = false;
+      container.classList.remove("drag-scrolling");
+    };
+    container.addEventListener("pointerup", finishDrag);
+    container.addEventListener("pointercancel", finishDrag);
+    container.addEventListener("click", (event) => {
+      if (!suppressClick) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      suppressClick = false;
+    }, true);
+  }
+
   const thumbnails = new Map(drawableIds.map((id) => [id, drawableThumbnail(model, coreModel, id)]));
+  applyGeneratedLayerTextures = async (job) => {
+    await applyRuntimeVariantTextures(job.layer_ids || [], job.variant_id);
+    historyPendingIds.clear();
+    historyPendingAction = null;
+    renderLayerList();
+    layerSaveStatus.textContent = t.generatedTextureApplied;
+    layerSaveStatus.className = "layer-save-status saved";
+  };
   layerCount.textContent = drawableIds.length;
   layerEditor.hidden = false;
 
@@ -535,12 +1116,41 @@ async function setupLayerEditor(model, modelJson) {
     setSaveState(t.layerUnsaved);
   }
 
+  function positionVariantMenu(menu, anchorElement) {
+    if (!menu?.matches(":popover-open") || !anchorElement?.isConnected) return;
+    const anchor = anchorElement.getBoundingClientRect();
+    const list = layerList.getBoundingClientRect();
+    const preferredWidth = Math.min(280, Math.max(220, list.width - 18));
+    menu.style.width = `${preferredWidth}px`;
+    menu.style.maxHeight = `${Math.max(120, Math.min(250, innerHeight - 20))}px`;
+    const bounds = menu.getBoundingClientRect();
+    const spaceBelow = innerHeight - anchor.bottom - 8;
+    const spaceAbove = anchor.top - 8;
+    const openUpward = spaceBelow < Math.min(bounds.height, 180) && spaceAbove > spaceBelow;
+    const unclampedTop = openUpward
+      ? anchor.top - bounds.height - 6
+      : anchor.bottom + 6;
+    const top = Math.max(8, Math.min(unclampedTop, innerHeight - bounds.height - 8));
+    const left = Math.max(8, Math.min(anchor.left, innerWidth - bounds.width - 8));
+    menu.style.top = `${top}px`;
+    menu.style.left = `${left}px`;
+    menu.classList.add("is-positioned");
+  }
+
   function renderLayerList() {
     const previousScrollTop = layerList.scrollTop;
+    if (activeVariantMenu) {
+      const staleMenu = activeVariantMenu;
+      activeVariantMenu = null;
+      activeVariantAnchor = null;
+      staleMenu.remove();
+    }
     layerList.replaceChildren();
     layerList.dataset.order = currentOrder.join("|");
     currentOrder.forEach((id, index) => {
-      const name = labels.get(id) || id.replace(/_/g, " ");
+      const layerInfo = regenerationLayers.get(id) || {};
+      const variants = Array.isArray(layerInfo.variants) ? layerInfo.variants : [];
+      const name = layerInfo.display_name || labels.get(id) || id.replace(/_/g, " ");
       const row = document.createElement("li");
       row.className = "layer-row";
       row.dataset.drawableId = id;
@@ -549,25 +1159,99 @@ async function setupLayerEditor(model, modelJson) {
       row.classList.toggle("layer-hidden", hiddenIds.has(id));
       row.classList.toggle("layer-solo", soloId === id);
       row.classList.toggle("layer-solo-muted", Boolean(soloId && soloId !== id));
+      row.classList.toggle("placement-open", expandedPlacementIds.has(id));
+      const historyPending = historyPendingIds.has(id);
+      const undoPending = historyPending && historyPendingAction === "undo";
+      const redoPending = historyPending && historyPendingAction === "redo";
+      const variantPending = historyPending && historyPendingAction === "variant";
+      const variantsExpanded = expandedVariantIds.has(id);
+      row.classList.toggle("history-pending", historyPending);
+      row.classList.toggle("variant-open", variantsExpanded);
 
       const handle = document.createElement("span");
       handle.className = "layer-handle";
       handle.textContent = "⠿";
       handle.setAttribute("aria-hidden", "true");
 
+      const thumbnailPicker = document.createElement(variants.length > 1 ? "button" : "span");
+      thumbnailPicker.className = `layer-thumbnail-picker${variants.length > 1 ? " has-variants" : ""}`;
+      thumbnailPicker.draggable = false;
       const thumbnail = document.createElement(thumbnails.get(id) ? "img" : "span");
-      thumbnail.className = `layer-thumbnail${thumbnails.get(id) ? "" : " empty"}`;
-      thumbnail.setAttribute("aria-hidden", "true");
+      thumbnail.className = `layer-thumbnail-image${thumbnails.get(id) ? "" : " empty"}`;
       if (thumbnails.get(id)) {
         thumbnail.src = thumbnails.get(id);
         thumbnail.alt = "";
       } else {
         thumbnail.textContent = "·";
       }
+      thumbnailPicker.append(thumbnail);
+      if (variants.length > 1) {
+        thumbnailPicker.type = "button";
+        thumbnailPicker.setAttribute("aria-expanded", String(variantsExpanded));
+        thumbnailPicker.setAttribute("aria-label", t.showLayerVariants(name));
+        thumbnailPicker.title = t.showLayerVariants(name);
+        const chevron = document.createElement("span");
+        chevron.className = "layer-thumbnail-chevron";
+        chevron.textContent = "⌄";
+        chevron.setAttribute("aria-hidden", "true");
+        thumbnailPicker.append(chevron);
+        thumbnailPicker.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const opening = !expandedVariantIds.has(id);
+          expandedVariantIds.clear();
+          if (opening) {
+            expandedVariantIds.add(id);
+            expandedPlacementIds.delete(id);
+          }
+          renderLayerList();
+        });
+      }
+      if (variantPending) {
+        const spinner = document.createElement("span");
+        spinner.className = "layer-thumbnail-spinner layer-button-spinner";
+        spinner.setAttribute("aria-hidden", "true");
+        thumbnailPicker.append(spinner);
+      }
 
       const label = document.createElement("span");
       label.className = "layer-name";
       label.append(name);
+      const labelWrap = document.createElement("span");
+      labelWrap.className = "layer-name-wrap";
+      labelWrap.append(label);
+      const undoGeneration = document.createElement("button");
+      undoGeneration.type = "button";
+      undoGeneration.className = "layer-undo-generation";
+      undoGeneration.innerHTML = undoPending
+        ? '<span class="layer-button-spinner" aria-hidden="true"></span>'
+        : [
+          '<svg viewBox="0 0 24 24" aria-hidden="true">',
+          '<path d="M9 7 4 12l5 5"></path>',
+          '<path d="M4 12h9a7 7 0 0 1 7 7"></path>',
+          '</svg>',
+        ].join("");
+      undoGeneration.disabled = !regenerationLayers.get(id)?.can_undo_generation || historyPending;
+      undoGeneration.setAttribute("aria-busy", String(undoPending));
+      undoGeneration.setAttribute("aria-label", t.undoLayerGeneration(name));
+      undoGeneration.title = t.undoLayerGeneration(name);
+      undoGeneration.addEventListener("click", () => undoLayerGeneration(id));
+      const redoGeneration = document.createElement("button");
+      redoGeneration.type = "button";
+      redoGeneration.className = "layer-redo-generation";
+      redoGeneration.innerHTML = redoPending
+        ? '<span class="layer-button-spinner" aria-hidden="true"></span>'
+        : [
+          '<svg viewBox="0 0 24 24" aria-hidden="true">',
+          '<path d="m15 7 5 5-5 5"></path>',
+          '<path d="M20 12h-9a7 7 0 0 0-7 7"></path>',
+          '</svg>',
+        ].join("");
+      redoGeneration.disabled = !regenerationLayers.get(id)?.can_redo_generation || historyPending;
+      redoGeneration.setAttribute("aria-busy", String(redoPending));
+      redoGeneration.setAttribute("aria-label", t.redoLayerGeneration(name));
+      redoGeneration.title = t.redoLayerGeneration(name);
+      redoGeneration.addEventListener("click", () => redoLayerGeneration(id));
+      labelWrap.append(undoGeneration, redoGeneration);
 
       const visibility = document.createElement("button");
       const isVisible = !hiddenIds.has(id);
@@ -599,6 +1283,54 @@ async function setupLayerEditor(model, modelJson) {
         renderLayerList();
       });
 
+      const placement = document.createElement("button");
+      const canAdjustPlacement = regenerationLayers.has(id);
+      const placementExpanded = expandedPlacementIds.has(id);
+      placement.type = "button";
+      placement.className = `layer-tool layer-placement-toggle${placementExpanded ? " is-active" : ""}`;
+      placement.textContent = "⊹";
+      placement.hidden = !canAdjustPlacement;
+      placement.setAttribute("aria-expanded", String(placementExpanded));
+      placement.setAttribute("aria-label", t.adjustLayerPlacement(name));
+      placement.addEventListener("click", () => {
+        const opening = !expandedPlacementIds.has(id);
+        if (opening) {
+          expandedPlacementIds.add(id);
+          expandedVariantIds.delete(id);
+        }
+        else expandedPlacementIds.delete(id);
+        renderLayerList();
+        if (opening) {
+          requestAnimationFrame(() => {
+            const expandedRow = Array.from(layerList.querySelectorAll(".layer-row"))
+              .find((candidate) => candidate.dataset.drawableId === id);
+            expandedRow?.querySelector(".layer-offset-panel")?.scrollIntoView({ block: "nearest" });
+          });
+        }
+      });
+
+      const regenerate = document.createElement("button");
+      regenerate.type = "button";
+      regenerate.className = "layer-tool layer-regenerate";
+      regenerate.textContent = "✦";
+      regenerate.hidden = !regenerationLayers.has(id);
+      regenerate.setAttribute("aria-label", t.regenerateLayer(name));
+      regenerate.addEventListener("click", () => {
+        const regenerationLayer = regenerationLayers.get(id) || {};
+        const relatedIds = regenerationLayer.related || [];
+        const related = relatedIds.map((relatedId) => ({
+          id: relatedId,
+          name: regenerationLayers.get(relatedId)?.display_name || labels.get(relatedId) || relatedId.replace(/_/g, " "),
+        }));
+        openLayerRegenerator({
+          id,
+          name,
+          related,
+          canRevert: Boolean(regenerationLayer.can_revert),
+          offset: regenerationLayer.offset || { x: 0, y: 0 },
+        });
+      });
+
       const up = document.createElement("button");
       up.type = "button";
       up.className = "layer-move";
@@ -615,7 +1347,85 @@ async function setupLayerEditor(model, modelJson) {
       down.setAttribute("aria-label", t.moveLayerDown(name));
       down.addEventListener("click", () => moveLayer(index, index + 1));
 
+      const rowActions = document.createElement("div");
+      rowActions.className = "layer-row-actions";
+      rowActions.setAttribute("role", "group");
+      rowActions.setAttribute("aria-label", `${name} ${t.layerControls}`);
+      rowActions.draggable = false;
+      rowActions.append(visibility, solo, regenerate, placement, up, down);
+      enableHorizontalDragScroll(rowActions);
+
+      let variantMenu = null;
+      if (variantsExpanded && variants.length > 1) {
+        variantMenu = document.createElement("div");
+        variantMenu.className = "layer-variant-menu";
+        variantMenu.setAttribute("popover", "auto");
+        variantMenu.setAttribute("role", "listbox");
+        variantMenu.setAttribute("aria-label", t.showLayerVariants(name));
+        variantMenu.draggable = false;
+        const groupedIds = (layerInfo.related || []).filter((relatedId) =>
+          regenerationLayers.get(relatedId)?.variants?.length);
+        let includeRelatedVariants = null;
+        if (groupedIds.length) {
+          const groupedNames = groupedIds.map((relatedId) =>
+            regenerationLayers.get(relatedId)?.display_name || labels.get(relatedId) || relatedId.replace(/_/g, " "));
+          const groupOption = document.createElement("label");
+          groupOption.className = "layer-variant-group-option";
+          includeRelatedVariants = document.createElement("input");
+          includeRelatedVariants.type = "checkbox";
+          includeRelatedVariants.checked = true;
+          const groupCopy = document.createElement("span");
+          groupCopy.textContent = t.includeRelatedVariants(groupedNames.join(", "));
+          groupOption.append(includeRelatedVariants, groupCopy);
+          variantMenu.append(groupOption);
+        }
+        variants.forEach((variant) => {
+          const variantLabel = variant.kind === "baseline"
+            ? t.originalVariant
+            : t.generatedVariant(variant.index);
+          const option = document.createElement("button");
+          option.type = "button";
+          option.className = `layer-variant-option${variant.active ? " is-active" : ""}`;
+          option.disabled = Boolean(variant.active) || historyPending;
+          option.setAttribute("role", "option");
+          option.setAttribute("aria-selected", String(Boolean(variant.active)));
+          option.setAttribute("aria-label", t.selectLayerVariant(variantLabel, name));
+          const preview = document.createElement("img");
+          preview.src = variant.thumbnail_url;
+          preview.alt = "";
+          preview.loading = "lazy";
+          const copy = document.createElement("span");
+          copy.className = "layer-variant-copy";
+          const title = document.createElement("span");
+          title.className = "layer-variant-title";
+          title.textContent = variantLabel;
+          copy.append(title);
+          if (variant.instruction) {
+            const instruction = document.createElement("span");
+            instruction.className = "layer-variant-instruction";
+            instruction.textContent = variant.instruction;
+            copy.append(instruction);
+          }
+          option.append(preview, copy);
+          if (variant.active) {
+            const active = document.createElement("span");
+            active.className = "layer-variant-active";
+            active.textContent = t.activeVariant;
+            option.append(active);
+          }
+          option.addEventListener("click", (event) => {
+            event.stopPropagation();
+            selectLayerVariant(id, variant, includeRelatedVariants?.checked ?? false);
+          });
+          variantMenu.append(option);
+        });
+      }
+
       row.addEventListener("dragstart", (event) => {
+        if (event.target.closest("button, input, .layer-row-actions, .layer-offset-panel, .layer-variant-menu, .layer-thumbnail-picker")) {
+          event.preventDefault();
+          return;
+        }
         draggedId = id;
         row.classList.add("dragging");
         event.dataTransfer.effectAllowed = "move";
@@ -642,16 +1452,114 @@ async function setupLayerEditor(model, modelJson) {
         });
       });
 
-      row.append(handle, thumbnail, label, visibility, solo, up, down);
+      row.append(handle, thumbnailPicker, labelWrap, rowActions);
+      if (canAdjustPlacement) {
+        const panel = document.createElement("div");
+        panel.className = "layer-offset-panel";
+        panel.hidden = !placementExpanded;
+        panel.draggable = false;
+
+        const preview = previewOffsets.get(id) || { x: 0, y: 0 };
+        const makeSlider = (axis, labelText) => {
+          const wrapper = document.createElement("div");
+          wrapper.className = "layer-offset-row";
+          const sliderLabel = document.createElement("label");
+          sliderLabel.textContent = labelText;
+          const slider = document.createElement("input");
+          slider.type = "range";
+          slider.min = "-256";
+          slider.max = "256";
+          slider.step = "1";
+          slider.value = String(preview[axis]);
+          slider.setAttribute("aria-label", `${name} ${labelText}`);
+          const output = document.createElement("output");
+          const showValue = () => {
+            const value = Number(slider.value);
+            output.textContent = `${value > 0 ? "+" : ""}${value}px`;
+          };
+          showValue();
+          slider.addEventListener("input", () => {
+            const next = { ...(previewOffsets.get(id) || { x: 0, y: 0 }) };
+            next[axis] = Number(slider.value);
+            previewOffsets.set(id, next);
+            showValue();
+            setPlacementStatus(id, "");
+            queuePlacementSave(id, 650);
+          });
+          slider.addEventListener("change", () => queuePlacementSave(id));
+          wrapper.append(sliderLabel, slider, output);
+          return { wrapper, slider, output };
+        };
+        const xSlider = makeSlider("x", t.layerOffsetX);
+        const ySlider = makeSlider("y", t.layerOffsetY);
+        const actions = document.createElement("div");
+        actions.className = "layer-offset-actions";
+        const center = document.createElement("button");
+        center.type = "button";
+        center.className = "secondary";
+        center.textContent = t.resetLayerOffset;
+        center.addEventListener("click", () => {
+          previewOffsets.set(id, { x: 0, y: 0 });
+          xSlider.slider.value = "0";
+          ySlider.slider.value = "0";
+          xSlider.output.textContent = "0px";
+          ySlider.output.textContent = "0px";
+          setPlacementStatus(id, "");
+          queuePlacementSave(id);
+        });
+        const restore = document.createElement("button");
+        restore.type = "button";
+        restore.className = "secondary restore-art";
+        restore.textContent = t.revertLayerEdit;
+        restore.disabled = !regenerationLayers.get(id)?.can_revert;
+        restore.addEventListener("click", () => restoreLayerArt(id));
+        const status = document.createElement("span");
+        const savedStatus = placementStatus.get(id) || { message: "", className: "" };
+        status.className = `layer-offset-status ${savedStatus.className}`.trim();
+        status.textContent = savedStatus.message;
+        actions.append(center, restore, status);
+        panel.append(xSlider.wrapper, ySlider.wrapper, actions);
+        row.appendChild(panel);
+      }
       layerList.appendChild(row);
+      if (variantMenu) {
+        document.body.appendChild(variantMenu);
+        activeVariantMenu = variantMenu;
+        activeVariantAnchor = thumbnailPicker;
+        variantMenu.showPopover();
+        variantMenu.addEventListener("toggle", (event) => {
+          if (event.newState !== "closed" || activeVariantMenu !== variantMenu) return;
+          activeVariantMenu = null;
+          activeVariantAnchor = null;
+          expandedVariantIds.delete(id);
+          renderLayerList();
+        });
+      }
     });
     const restoreScroll = () => {
       const maximumScrollTop = Math.max(0, layerList.scrollHeight - layerList.clientHeight);
       layerList.scrollTop = Math.min(previousScrollTop, maximumScrollTop);
     };
     restoreScroll();
-    requestAnimationFrame(restoreScroll);
+    requestAnimationFrame(() => {
+      restoreScroll();
+      positionVariantMenu(activeVariantMenu, activeVariantAnchor);
+    });
   }
+
+  document.addEventListener("click", (event) => {
+    if (!expandedVariantIds.size || event.target.closest(".layer-thumbnail-picker, .layer-variant-menu")) {
+      return;
+    }
+    expandedVariantIds.clear();
+    renderLayerList();
+  });
+
+  layerList.addEventListener("scroll", () => {
+    if (!expandedVariantIds.size) return;
+    expandedVariantIds.clear();
+    renderLayerList();
+  }, { passive: true });
 
   resetLayerOrder.addEventListener("click", () => {
     currentOrder = [...modelOrder];

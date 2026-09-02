@@ -2,9 +2,14 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from tools.rig_avatar import version_model_resources
+from tools.rig_avatar import (
+    build_variant_mesh_guides,
+    restore_stack_display_names,
+    version_model_resources,
+)
 from tools.serve import (
     avatar_layer_regeneration_paths,
     select_semantic_psd,
@@ -80,6 +85,53 @@ class ModelResourceVersionTests(unittest.TestCase):
             self.assertEqual(refs["Textures"], ["textures/body.png?v=build-2"])
             self.assertEqual(refs["Physics"], "avatar.physics3.json?v=build-2")
             self.assertEqual(refs["Motions"]["Idle"][0]["File"], "idle.motion3.json?v=build-2")
+
+
+class LayerDisplayNameTests(unittest.TestCase):
+    def test_restores_see_through_names_after_override_reload(self):
+        stack = SimpleNamespace(layers=[
+            SimpleNamespace(id="00_clothing", display_name=None),
+            SimpleNamespace(id="24_clothing", display_name=None),
+        ])
+        restore_stack_display_names(stack, {
+            "00_clothing": "Topwear",
+            "24_clothing": "Cape",
+        })
+        self.assertEqual(
+            [layer.display_name for layer in stack.layers],
+            ["Topwear", "Cape"],
+        )
+
+
+class VariantMeshGuideTests(unittest.TestCase):
+    def test_unions_current_baseline_and_archived_variant_alpha(self):
+        from PIL import Image, ImageDraw
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            current_dir = root / "rig-layers"
+            regeneration = root / "layer-regeneration"
+            baseline_dir = regeneration / "baseline"
+            history_results = regeneration / "history" / "generation-1" / "results"
+            for directory in (current_dir, baseline_dir, history_results):
+                directory.mkdir(parents=True)
+
+            def layer(path, box):
+                image = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
+                ImageDraw.Draw(image).rectangle(box, fill=(220, 40, 60, 255))
+                image.save(path)
+
+            current = current_dir / "arm_l.png"
+            layer(current, (13, 4, 18, 26))
+            layer(baseline_dir / "arm_l.png", (4, 4, 13, 20))
+            layer(history_results / "arm_l.png", (18, 4, 27, 20))
+            stack = SimpleNamespace(layers=[SimpleNamespace(id="arm_l", texture_path=current)])
+
+            guide_path = build_variant_mesh_guides(stack, regeneration)["arm_l"]
+            alpha = Image.open(guide_path).convert("RGBA").getchannel("A")
+            self.assertEqual(alpha.getpixel((5, 10)), 255)
+            self.assertEqual(alpha.getpixel((15, 24)), 255)
+            self.assertEqual(alpha.getpixel((26, 10)), 255)
 
 
 class LayerRegenerationPathTests(unittest.TestCase):
