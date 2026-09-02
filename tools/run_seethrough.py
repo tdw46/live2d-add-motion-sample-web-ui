@@ -26,8 +26,11 @@ PROFILES = {
         "--resolution", "1280",
         "--resolution_depth", "768",
         "--inference_steps", "30",
+        "--inference_steps_depth", "10",
     ],
 }
+
+DEFAULT_PROFILE = "community-quality"
 
 
 def main() -> None:
@@ -38,8 +41,8 @@ def main() -> None:
     parser.add_argument(
         "--profile",
         choices=PROFILES,
-        default="mps-smoke",
-        help="mps-smoke is the initial Apple Silicon validation profile",
+        default=DEFAULT_PROFILE,
+        help="community-quality is the default; mps-smoke is the faster diagnostic profile",
     )
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT))
     parser.add_argument(

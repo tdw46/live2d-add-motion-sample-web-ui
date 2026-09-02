@@ -194,12 +194,74 @@ def _pixels(image):
     return getter() if getter else image.getdata()
 
 
-def repair_incomplete_face(layer_dir: Path) -> bool:
-    """Fill a missing See-through face plane while preserving its extracted jaw line.
+def _layer_order(path: Path) -> int:
+    head = path.stem.partition("_")[0]
+    return int(head) if head.isdigit() else 0
+
+
+def _derive_face_from_head(layer_dir: Path, source_dir: Path | None) -> Path | None:
+    """Recover a missing/sparse face from See-through's full-color head output."""
+    from PIL import Image, ImageChops, ImageFilter
+
+    if source_dir is None:
+        return None
+    head_path = source_dir / "head.png"
+    if not head_path.is_file():
+        return None
+    layers = sorted(layer_dir.glob("*.png"))
+    if not layers:
+        return None
+    with Image.open(head_path) as source_head:
+        head = source_head.convert("RGBA")
+    with Image.open(layers[0]) as first_layer:
+        layer_size = first_layer.size
+    if head.size != layer_size:
+        return None
+
+    face_paths = list(layer_dir.glob("*_face_base.png"))
+    if face_paths:
+        face_path = face_paths[0]
+    else:
+        front_hair = list(layer_dir.glob("*_hair_front.png"))
+        order = _layer_order(front_hair[0]) if front_hair else max(_layer_order(path) for path in layers)
+        face_path = layer_dir / f"{order:02d}_face_base.png"
+
+    alpha = head.getchannel("A").point(lambda value: value if value > 12 else 0)
+    # Head is a composite semantic output. Remove content already represented by
+    # independent rig layers, with a tiny dilation to avoid doubled color fringes.
+    subtract_roles = (
+        # Back hair/helmet is often the same opaque head shell and subtracting it
+        # can erase the entire recovered face. It already draws behind face_base.
+        "hair_front", "eye_l", "eye_r", "eye_white_l", "eye_white_r",
+        "pupil_l", "pupil_r", "eyebrow_l", "eyebrow_r", "nose", "mouth",
+        "mouth_cavity", "accessory",
+    )
+    for path in layers:
+        if path == face_path or not any(path.stem.endswith(f"_{role}") for role in subtract_roles):
+            continue
+        with Image.open(path) as source_overlay:
+            overlay = source_overlay.convert("RGBA").getchannel("A")
+        if overlay.size != head.size:
+            continue
+        alpha = ImageChops.subtract(alpha, overlay.filter(ImageFilter.MaxFilter(3)))
+
+    bbox = alpha.getbbox()
+    occupied = sum(1 for value in _pixels(alpha) if value > 16)
+    if not bbox or occupied < 64:
+        return None
+    recovered = head.copy()
+    recovered.putalpha(alpha)
+    recovered.save(face_path)
+    return face_path
+
+
+def repair_incomplete_face(layer_dir: Path, source_dir: Path | None = None) -> str | None:
+    """Fill a missing See-through face plane while preserving the source design.
 
     The experimental MPS depth path can occasionally return only the jaw contour for
-    the ``face`` layer. Eyes, mouth, ears, neck, and hair remain usable, so a skin-toned
-    oval behind those parts is a safer recovery than shipping a transparent face.
+    the ``face`` layer or omit it entirely. Prefer recovering the actual colors and
+    silhouette from LayerDiff's ``head.png``; retain the conservative geometry fallback
+    for older outputs that have no head artifact.
     """
     from PIL import Image, ImageDraw
 
@@ -208,8 +270,23 @@ def repair_incomplete_face(layer_dir: Path) -> bool:
     eye_r_paths = list(layer_dir.glob("*_eye_r.png"))
     mouth_paths = list(layer_dir.glob("*_mouth.png"))
     neck_paths = list(layer_dir.glob("*_neck.png"))
+    face_is_usable = False
+    if face_paths:
+        face_alpha = Image.open(face_paths[0]).convert("RGBA").getchannel("A")
+        face_bbox = face_alpha.getbbox()
+        if face_bbox:
+            nonempty = sum(1 for value in _pixels(face_alpha) if value > 16)
+            bbox_area = max(1, (face_bbox[2] - face_bbox[0]) * (face_bbox[3] - face_bbox[1]))
+            face_is_usable = nonempty / bbox_area >= 0.35
+    if face_is_usable:
+        return None
+
+    recovered_path = _derive_face_from_head(layer_dir, source_dir)
+    if recovered_path is not None:
+        return "head-output"
+
     if not all((face_paths, eye_l_paths, eye_r_paths, mouth_paths)):
-        return False
+        return None
 
     face_path = face_paths[0]
     original = Image.open(face_path).convert("RGBA")
@@ -222,13 +299,13 @@ def repair_incomplete_face(layer_dir: Path) -> bool:
         bbox_area = max(1, (face_bbox[2] - face_bbox[0]) * (face_bbox[3] - face_bbox[1]))
         fill_ratio = nonempty / bbox_area
     if fill_ratio >= 0.35:
-        return False
+        return None
 
     left_bbox = _alpha_bbox(eye_l_paths[0])
     right_bbox = _alpha_bbox(eye_r_paths[0])
     mouth_bbox = _alpha_bbox(mouth_paths[0])
     if not left_bbox or not right_bbox or not mouth_bbox:
-        return False
+        return None
     eye_centers = sorted(
         [
             ((left_bbox[0] + left_bbox[2]) / 2, (left_bbox[1] + left_bbox[3]) / 2),
@@ -268,7 +345,7 @@ def repair_incomplete_face(layer_dir: Path) -> bool:
     )
     repaired.alpha_composite(original)
     repaired.save(face_path)
-    return True
+    return "geometry"
 
 
 def version_model_resources(model3_path: Path, token: str | None = None) -> str:
@@ -327,7 +404,8 @@ def main() -> None:
     cape_inpainter, cape_inpaint = build_cape_inpainter(psd_path, args.cape_inpaint)
     stack = from_psd(psd_path, layer_dir, cape_inpainter=cape_inpainter)
     source_display_names = {layer.id: layer.display_name for layer in stack.layers}
-    face_repaired = repair_incomplete_face(layer_dir)
+    face_repair_method = repair_incomplete_face(layer_dir, psd_path.with_suffix(""))
+    face_repaired = bool(face_repair_method)
     layer_manifest_path = layer_dir.parent / "rig-layers-manifest.json"
     drawable_layer_dir = layer_dir.parent / "rig-drawable-layers"
     baseline_layer_dir = layer_dir.parent / "layer-regeneration" / "baseline"
@@ -348,10 +426,14 @@ def main() -> None:
     ) if args.layer_overrides else []
     # Re-read the finalized directory after applying replacements so meshes, textures, and semantic roles
     # are authored from the edited pixels rather than the pre-edit PSD extraction held in ``stack``.
-    if layer_overrides:
+    if layer_overrides or face_repaired:
         from image2live2d.core.decompose import from_layer_dir
         stack = from_layer_dir(layer_dir)
         restore_stack_display_names(stack, source_display_names)
+        if face_repair_method == "head-output":
+            for layer in stack.layers:
+                if layer.semantic_role.value == "face_base" and not layer.display_name:
+                    layer.display_name = "Face"
     regeneration_dir = layer_dir.parent / "layer-regeneration"
     mesh_guides = build_variant_mesh_guides(stack, regeneration_dir)
     rig = rig_from_stack(
@@ -386,7 +468,9 @@ def main() -> None:
         "parameters": len(rig.parameters),
         "physics": len(rig.physics),
         "qa_passed": report.passed,
+        "qa_reasons": report.reasons,
         "face_repaired": face_repaired,
+        "face_repair_method": face_repair_method,
         "cape_inpaint": cape_inpaint,
         "layer_overrides": layer_overrides,
         "layer_offsets": layer_offsets,

@@ -7,11 +7,14 @@ from unittest.mock import patch
 
 from tools.rig_avatar import (
     build_variant_mesh_guides,
+    repair_incomplete_face,
     restore_stack_display_names,
     version_model_resources,
 )
+from tools.run_seethrough import DEFAULT_PROFILE, PROFILES
 from tools.serve import (
     avatar_layer_regeneration_paths,
+    require_rig_qa,
     select_semantic_psd,
     validate_layer_order,
 )
@@ -132,6 +135,54 @@ class VariantMeshGuideTests(unittest.TestCase):
             self.assertEqual(alpha.getpixel((5, 10)), 255)
             self.assertEqual(alpha.getpixel((15, 24)), 255)
             self.assertEqual(alpha.getpixel((26, 10)), 255)
+
+
+class FaceRecoveryTests(unittest.TestCase):
+    def test_recovers_missing_face_from_head_and_subtracts_separate_features(self):
+        from PIL import Image, ImageDraw
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            layer_dir = root / "rig-layers"
+            source_dir = root / "source"
+            layer_dir.mkdir()
+            source_dir.mkdir()
+
+            head = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+            ImageDraw.Draw(head).ellipse((14, 8, 50, 56), fill=(60, 180, 220, 255))
+            head.save(source_dir / "head.png")
+
+            hair = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+            ImageDraw.Draw(hair).rectangle((10, 4, 54, 18), fill=(180, 20, 40, 255))
+            hair.save(layer_dir / "10_hair_front.png")
+            eye = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+            ImageDraw.Draw(eye).ellipse((24, 25, 30, 31), fill=(255, 255, 255, 255))
+            eye.save(layer_dir / "11_eye_l.png")
+
+            self.assertEqual(repair_incomplete_face(layer_dir, source_dir), "head-output")
+            recovered = Image.open(layer_dir / "10_face_base.png").convert("RGBA")
+            self.assertEqual(recovered.getpixel((32, 40)), (60, 180, 220, 255))
+            self.assertEqual(recovered.getpixel((26, 28))[3], 0)
+            self.assertEqual(recovered.getpixel((32, 12))[3], 0)
+
+
+class AvatarQualityGateTests(unittest.TestCase):
+    def test_accepts_passing_rig(self):
+        require_rig_qa({"qa_passed": True})
+
+    def test_rejects_failed_rig_with_reasons(self):
+        with self.assertRaisesRegex(RuntimeError, "missing_role"):
+            require_rig_qa({"qa_passed": False, "qa_reasons": ["lint:missing_role"]})
+
+
+class SeeThroughProfileTests(unittest.TestCase):
+    def test_quality_profile_is_explicit_default(self):
+        self.assertEqual(DEFAULT_PROFILE, "community-quality")
+        args = PROFILES[DEFAULT_PROFILE]
+        self.assertEqual(args[args.index("--resolution") + 1], "1280")
+        self.assertEqual(args[args.index("--resolution_depth") + 1], "768")
+        self.assertEqual(args[args.index("--inference_steps") + 1], "30")
+        self.assertEqual(args[args.index("--inference_steps_depth") + 1], "10")
 
 
 class LayerRegenerationPathTests(unittest.TestCase):

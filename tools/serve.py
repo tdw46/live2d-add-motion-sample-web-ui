@@ -38,6 +38,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 from tools.layer_regeneration import geometric_counterpart_ids, matching_layer_group  # noqa: E402
+from tools.run_seethrough import DEFAULT_PROFILE as DEFAULT_SEE_THROUGH_PROFILE  # noqa: E402
 HALLWAY_ENV = Path(
     os.environ.get(
         "LIVE2D_HALLWAY_ENV",
@@ -198,7 +199,7 @@ def pipeline_status() -> dict:
         "environment_ready": PIPELINE_PYTHON.is_file(),
         "see_through_ready": (SEE_THROUGH / "inference" / "scripts" / "inference_psd.py").is_file(),
         "rig_bridge_ready": (IMAGE2LIVE2D / "src" / "image2live2d").is_dir(),
-        "profile": os.environ.get("SEE_THROUGH_PROFILE", "mps-smoke"),
+        "profile": os.environ.get("SEE_THROUGH_PROFILE", DEFAULT_SEE_THROUGH_PROFILE),
     }
 
 
@@ -219,6 +220,18 @@ def public_job(job: dict) -> dict:
 def _json_result(output: str) -> dict:
     line = next((line for line in reversed(output.splitlines()) if line.startswith("{")), "{}")
     return json.loads(line)
+
+
+def require_rig_qa(rig_result: dict) -> None:
+    """Fail closed before a generated avatar is registered as ready."""
+    if bool(rig_result.get("qa_passed")):
+        return
+    reasons = rig_result.get("qa_reasons")
+    detail = ", ".join(str(reason) for reason in reasons) if isinstance(reasons, list) else ""
+    raise RuntimeError(
+        "The generated Live2D rig failed semantic/rig QA"
+        + (f": {detail}" if detail else ".")
+    )
 
 
 def _mime_for_path(path: Path) -> str:
@@ -2056,7 +2069,7 @@ def run_avatar_job(job_id: str) -> None:
             message="Separating the artwork into semantic layers with See-through on Metal…",
         )
 
-        profile = os.environ.get("SEE_THROUGH_PROFILE", "mps-smoke")
+        profile = os.environ.get("SEE_THROUGH_PROFILE", DEFAULT_SEE_THROUGH_PROFILE)
         see_output = work_dir / "see-through"
         _run_checked(
             [
@@ -2096,6 +2109,7 @@ def run_avatar_job(job_id: str) -> None:
         model3_path = Path(rig_result.get("model3", ""))
         if not model3_path.is_file():
             raise RuntimeError("The rigging bridge did not produce a loadable .model3.json bundle.")
+        require_rig_qa(rig_result)
         relative_model3 = model3_path.resolve().relative_to(PROJECT_ROOT).as_posix()
         avatar = {
             "id": job_id,
@@ -2108,6 +2122,9 @@ def run_avatar_job(job_id: str) -> None:
             "gemini_model": gemini_model,
             "see_through_profile": profile,
             "qa_passed": bool(rig_result.get("qa_passed")),
+            "qa_reasons": rig_result.get("qa_reasons", []),
+            "face_repaired": bool(rig_result.get("face_repaired")),
+            "face_repair_method": rig_result.get("face_repair_method"),
             "cape_inpaint": rig_result.get("cape_inpaint"),
         }
         register_avatar(avatar)

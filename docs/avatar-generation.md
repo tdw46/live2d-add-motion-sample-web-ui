@@ -132,12 +132,18 @@ The environment and all downloaded/generated artifacts are ignored by Git.
 
 ## Profiles
 
-- `mps-smoke` (default): seed 42, 768 layer/depth resolution, 20 LayerDiff
+- `community-quality` (default): seed 42, 1280 layer resolution, 768 depth
+  resolution, 30 LayerDiff steps, 10 Marigold depth steps, left/right split,
+  and PSD output.
+- `mps-smoke`: seed 42, 768 layer/depth resolution, 20 LayerDiff
   steps, 10 depth steps, left/right split, PSD output. This profile completed
   locally on 2026-08-31.
-- `community-quality`: seed 42, 1280 layer resolution, 768 depth resolution,
-  30 LayerDiff steps, left/right split, PSD output. Start the server with
-  `SEE_THROUGH_PROFILE=community-quality python3 tools/serve.py`.
+
+Both profiles automatically select CUDA, then MPS, then CPU. Marigold output is
+validated for finite values, normalized range, dimensions, and meaningful depth
+variation before semantic extraction. If an MPS depth pass errors or fails those
+checks, only Marigold is reloaded and retried on CPU; `depth-qa.json` records both
+attempts. A failed retry stops generation before an avatar can be registered.
 
 The first local run downloads roughly 10–15 GB of weights. Requests are queued
 and processed one at a time to avoid competing for unified memory.
@@ -149,11 +155,14 @@ because the public CLI currently emits a JSON-only Live2D bundle. The adapter
 injects the project's tested native writer, producing the `.moc3` required by
 Pixi Live2D, then records parts, parameters, physics count, and QA status.
 
-The experimental MPS path can produce an incomplete face plane even when eyes,
-mouth, ears, neck, and hair are correctly separated. The adapter detects a
-sparse face layer and rebuilds a conservative skin plane from the eye/mouth
-geometry and neck skin tone before rigging. This is a recovery path, not a
-replacement for visual review.
+The experimental decomposition can produce an incomplete or entirely missing
+face plane even when eyes, mouth, ears, neck, and hair are usable. The adapter
+first rebuilds the face from See-through's full-color `head.png`, subtracting
+already-separated hair and facial-feature alpha so the source design and colors
+are retained. Older artifacts without `head.png` retain the conservative
+eye/mouth geometry and neck-color fallback. Rig QA now fails closed: an avatar
+with unresolved semantic or rig warnings is left on disk for diagnosis but is
+not registered as ready.
 
 ## Provenance
 
